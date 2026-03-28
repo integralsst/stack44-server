@@ -10,73 +10,30 @@ datasource db {
 // --- MODELOS PRINCIPALES ---
 
 model Company {
-  id          String          @id @default(uuid())
+  id          String   @id @default(uuid())
   name        String
-  taxId       String?         @unique // Identificador fiscal, útil para facturación del SaaS
+  taxId       String?  @unique // Identificador fiscal (NIT, RUC, etc.)
   
-  // Relaciones (El núcleo del modelo Multi-tenant)
+  // Relación con los Usuarios (Tenant)
   users       User[]
-  contacts    Contact[]
-  campaigns   EmailCampaign[]
   
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model User {
-  id          String          @id @default(uuid())
-  email       String          @unique
+  id          String   @id @default(uuid())
+  email       String   @unique
   password    String
   name        String
-  role        Role            @default(USER)
+  role        Role     @default(USER)
   
   // Relación con la Empresa (Tenant)
   companyId   String?
-  company     Company?        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company     Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
   
-  // Relaciones directas (Para saber qué usuario en específico creó el contacto/campaña)
-  contacts    Contact[]       
-  emailCampaigns EmailCampaign[] 
-  
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-}
-
-model Contact {
-  id              String        @id @default(uuid())
-  email           String        @unique
-  name            String?
-  clientCompany   String?       // La empresa a la que pertenece este lead
-  status          ContactStatus @default(LEAD)
-  
-  // Relación con el Tenant (Company)
-  companyId       String
-  company         Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  
-  // Relación con el consultor que gestiona el lead (User)
-  userId          String
-  user            User          @relation(fields: [userId], references: [id])
-  
-  lastContactedAt DateTime?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-}
-
-model EmailCampaign {
-  id              String   @id @default(uuid())
-  subject         String   
-  content         String   @db.LongText 
-  totalRecipients Int      @default(0)  
-  
-  // Relación con el Tenant (Company)
-  companyId       String
-  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  
-  // Relación con el usuario que envió la campaña
-  userId          String
-  user            User     @relation(fields: [userId], references: [id])
-  
-  sentAt          DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 // --- ENUMS ---
@@ -84,13 +41,6 @@ model EmailCampaign {
 enum Role {
   USER
   ADMIN
-  OWNER 
-  SUPERADMIN 
-}
-
-enum ContactStatus {
-  LEAD        
-  CONTACTED   
-  INTERESTED  
-  CLIENT      
+  OWNER
+  SUPERADMIN
 }
