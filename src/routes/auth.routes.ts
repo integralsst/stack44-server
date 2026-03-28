@@ -1,11 +1,13 @@
-// src/routes/auth.routes.ts
+// src/routes/user.routes.ts
 import { Router } from 'express';
-import { register, login } from '../controllers/auth.controller';
+import { userController } from '../controllers/user.controller';
+import { authenticate } from '../middlewares/auth.middleware';
 
 const router = Router();
 
-// Estas rutas se sumarán al prefijo que le daremos en el index.ts
-router.post('/register', register);
-router.post('/login', login);
+router.get('/', authenticate, userController.getAll);
+router.post('/', authenticate, userController.create);
+router.put('/:id', authenticate, userController.update); // Nueva ruta agregada
+router.delete('/:id', authenticate, userController.delete);
 
 export default router;

@@ -16,7 +16,6 @@ export const userController = {
         return;
       }
 
-      // Tipado estricto: Forzamos a que el objeto cumpla con los requisitos de Prisma
       const whereClause: Prisma.UserWhereInput = userReq.role === 'SUPERADMIN' 
         ? {} 
         : { companyId: (userReq.companyId as string) || null };
@@ -53,7 +52,6 @@ export const userController = {
         return;
       }
 
-      // Validación estricta para evitar undefined en la base de datos
       const targetCompanyId: string | null = userReq.role === 'SUPERADMIN' 
         ? (companyId || null) 
         : ((userReq.companyId as string) || null);
@@ -67,7 +65,6 @@ export const userController = {
       const salt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash(password, salt);
 
-      // Verificación de que el rol ingresado exista en el Enum de Prisma
       const assignedRole: Role = Object.values(Role).includes(role as Role) 
         ? (role as Role) 
         : Role.USER;
@@ -90,7 +87,59 @@ export const userController = {
     }
   },
 
-  // 3. Eliminar usuario
+  // 3. Actualizar usuario
+  update: async (req: Request, res: Response): Promise<void> => {
+    try {
+      const id = req.params.id as string;
+      const { name, email, password, role } = req.body;
+      const userReq = req.user;
+
+      if (!userReq) {
+        res.status(401).json({ error: 'No autorizado' });
+        return;
+      }
+
+      const targetUser = await prisma.user.findUnique({ where: { id } });
+      
+      if (!targetUser) {
+        res.status(404).json({ error: 'Usuario no encontrado' });
+        return;
+      }
+
+      // Verificación de aislamiento de datos
+      if (userReq.role !== 'SUPERADMIN' && targetUser.companyId !== userReq.companyId) {
+        res.status(403).json({ error: 'No tienes permiso para editar este usuario' });
+        return;
+      }
+
+      // Preparar el objeto de actualización
+      const updateData: Prisma.UserUpdateInput = { name, email };
+
+      // Solo actualiza el rol si se envía y es válido
+      if (role && Object.values(Role).includes(role as Role)) {
+        updateData.role = role as Role;
+      }
+
+      // Si se envía una nueva contraseña, se encripta. Si no, se ignora.
+      if (password && password.trim() !== '') {
+        const salt = await bcrypt.genSalt(10);
+        updateData.password = await bcrypt.hash(password, salt);
+      }
+
+      const updatedUser = await prisma.user.update({
+        where: { id },
+        data: updateData,
+        select: { id: true, name: true, email: true, role: true, companyId: true, company: { select: { name: true } } }
+      });
+
+      res.json(updatedUser);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: 'Error al actualizar usuario' });
+    }
+  },
+
+  // 4. Eliminar usuario
   delete: async (req: Request, res: Response): Promise<void> => {
     try {
       const id = req.params.id as string;
