@@ -2,9 +2,10 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import authRoutes from './routes/auth.routes'; // Importamos la tubería de rutas
+import authRoutes from './routes/auth.routes'; 
 import contactRoutes from './routes/contact.routes';
 import campaignRoutes from './routes/campaign.routes';
+import companyRoutes from './routes/company.routes'; // <-- Importa las nuevas rutas
 
 dotenv.config();
     
@@ -16,11 +17,11 @@ app.use(cors());
 app.use(express.json());
 
 // --- CONEXIÓN DE RUTAS ---
-// Esto conecta todas las rutas internas de auth.routes.ts 
-// bajo el prefijo global /api/auth
 app.use('/api/auth', authRoutes);
 app.use('/api/contacts', contactRoutes);
 app.use('/api/campaigns', campaignRoutes);
+app.use('/api/companies', companyRoutes); // <-- Conecta las rutas de empresas
+
 // --- RUTA DE SALUD (Health Check) ---
 app.get('/', (req: Request, res: Response) => {
   res.json({ message: 'Servidor operativo y en línea 🚀' });
