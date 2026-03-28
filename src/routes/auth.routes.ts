@@ -1,13 +1,13 @@
-// src/routes/user.routes.ts
+// src/routes/auth.routes.ts
 import { Router } from 'express';
-import { userController } from '../controllers/user.controller';
-import { authenticate } from '../middlewares/auth.middleware';
+import { login, register } from '../controllers/auth.controller';
 
 const router = Router();
 
-router.get('/', authenticate, userController.getAll);
-router.post('/', authenticate, userController.create);
-router.put('/:id', authenticate, userController.update); // Nueva ruta agregada
-router.delete('/:id', authenticate, userController.delete);
+// Ruta para iniciar sesión: POST /api/auth/login
+router.post('/login', login);
+
+// Ruta para registrar un nuevo usuario: POST /api/auth/register
+router.post('/register', register);
 
 export default router;
