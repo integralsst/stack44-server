@@ -1,14 +1,15 @@
 // src/routes/company.routes.ts
 import { Router } from 'express';
 import { companyController } from '../controllers/company.controller';
+import { authenticate } from '../middlewares/auth.middleware'; // Ajusta esta ruta según tu proyecto
 
 const router = Router();
 
-// Rutas base: /api/companies
-router.post('/', companyController.create);
-router.get('/', companyController.getAll);
-router.get('/:id', companyController.getById);
-router.put('/:id', companyController.update);
-router.delete('/:id', companyController.delete);
+// Todas las rutas base: /api/companies ahora están protegidas
+router.post('/', authenticate, companyController.create);
+router.get('/', authenticate, companyController.getAll);
+router.get('/:id', authenticate, companyController.getById);
+router.put('/:id', authenticate, companyController.update);
+router.delete('/:id', authenticate, companyController.delete);
 
 export default router;
