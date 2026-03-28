@@ -1,5 +1,3 @@
-// prisma/schema.prisma
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -11,30 +9,51 @@ datasource db {
 
 // --- MODELOS PRINCIPALES ---
 
+model Company {
+  id          String          @id @default(uuid())
+  name        String
+  taxId       String?         @unique // Identificador fiscal, útil para facturación del SaaS
+  
+  // Relaciones (El núcleo del modelo Multi-tenant)
+  users       User[]
+  contacts    Contact[]
+  campaigns   EmailCampaign[]
+  
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
+
 model User {
-  id             String          @id @default(uuid())
-  email          String          @unique
-  password       String
-  name           String
-  company        String?         // Tu empresa de consultoría en Pereira
-  role           Role            @default(USER)
+  id          String          @id @default(uuid())
+  email       String          @unique
+  password    String
+  name        String
+  role        Role            @default(USER)
   
-  // Relaciones
-  contacts       Contact[]       // Tus leads y clientes
-  emailCampaigns EmailCampaign[] // Tu historial de envíos
+  // Relación con la Empresa (Tenant)
+  companyId   String?
+  company     Company?        @relation(fields: [companyId], references: [id], onDelete: Cascade)
   
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  // Relaciones directas (Para saber qué usuario en específico creó el contacto/campaña)
+  contacts    Contact[]       
+  emailCampaigns EmailCampaign[] 
+  
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
 }
 
 model Contact {
   id              String        @id @default(uuid())
   email           String        @unique
   name            String?
-  company         String?       // Empresa a la que le ofreces SST
-  status          ContactStatus @default(LEAD) // Estado en el embudo comercial
+  clientCompany   String?       // La empresa a la que pertenece este lead
+  status          ContactStatus @default(LEAD)
   
-  // Relación con el consultor (User)
+  // Relación con el Tenant (Company)
+  companyId       String
+  company         Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  
+  // Relación con el consultor que gestiona el lead (User)
   userId          String
   user            User          @relation(fields: [userId], references: [id])
   
@@ -45,11 +64,15 @@ model Contact {
 
 model EmailCampaign {
   id              String   @id @default(uuid())
-  subject         String   // Asunto: Ej. "Requisitos Legales SST 2026"
-  content         String   @db.LongText // El cuerpo del correo (HTML con estilo Apple)
-  totalRecipients Int      @default(0)  // Cantidad de correos enviados
+  subject         String   
+  content         String   @db.LongText 
+  totalRecipients Int      @default(0)  
   
-  // Relación con el consultor (User)
+  // Relación con el Tenant (Company)
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  
+  // Relación con el usuario que envió la campaña
   userId          String
   user            User     @relation(fields: [userId], references: [id])
   
@@ -61,11 +84,13 @@ model EmailCampaign {
 enum Role {
   USER
   ADMIN
+  OWNER 
+  SUPERADMIN 
 }
 
 enum ContactStatus {
-  LEAD        // Recién cargado al sistema
-  CONTACTED   // Ya recibió el primer correo informativo
-  INTERESTED  // Respondió o mostró interés en la asesoría
-  CLIENT      // Ya es cliente de SIS o Legal 360
+  LEAD        
+  CONTACTED   
+  INTERESTED  
+  CLIENT      
 }
