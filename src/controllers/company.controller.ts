@@ -1,4 +1,3 @@
-// src/controllers/company.controller.ts
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 
@@ -19,13 +18,13 @@ export const companyController = {
     }
   },
 
-  // Obtener todas las empresas (con conteo de usuarios y contactos)
+  // Obtener todas las empresas (Solo con conteo de usuarios)
   getAll: async (req: Request, res: Response) => {
     try {
       const companies = await prisma.company.findMany({
         include: {
           _count: {
-            select: { users: true, contacts: true },
+            select: { users: true }, // Se eliminó 'contacts'
           },
         },
       });
@@ -42,7 +41,7 @@ export const companyController = {
       const id = req.params.id as string;
       const company = await prisma.company.findUnique({
         where: { id },
-        include: { users: true }, // Ejemplo: incluir los usuarios de esa empresa
+        include: { users: true },
       });
       
       if (!company) {
@@ -72,7 +71,7 @@ export const companyController = {
     }
   },
 
-  // Eliminar una empresa (¡Ojo! Con onDelete: Cascade esto borrará sus usuarios y contactos)
+  // Eliminar una empresa
   delete: async (req: Request, res: Response) => {
     try {
       const id = req.params.id as string;
