@@ -4,7 +4,6 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import authRoutes from './routes/auth.routes'; 
 import contactRoutes from './routes/contact.routes';
-import campaignRoutes from './routes/campaign.routes';
 import companyRoutes from './routes/company.routes'; // <-- Importa las nuevas rutas
 
 dotenv.config();
@@ -19,7 +18,6 @@ app.use(express.json());
 // --- CONEXIÓN DE RUTAS ---
 app.use('/api/auth', authRoutes);
 app.use('/api/contacts', contactRoutes);
-app.use('/api/campaigns', campaignRoutes);
 app.use('/api/companies', companyRoutes); // <-- Conecta las rutas de empresas
 
 // --- RUTA DE SALUD (Health Check) ---
