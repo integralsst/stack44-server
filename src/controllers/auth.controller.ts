@@ -5,7 +5,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
 const prisma = new PrismaClient();
-const JWT_SECRET = process.env.JWT_SECRET || 'super_secreto_para_firmar_tokens_sis_2026';
+const JWT_SECRET = process.env.JWT_SECRET || 'una_clave_larga_y_privada';
 
 export const register = async (req: Request, res: Response): Promise<void> => {
   console.log(`[AUTH-REGISTER] Iniciando petición de registro para: ${req.body.email}`);
