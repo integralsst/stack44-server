@@ -43,5 +43,4 @@ enum Role {
   ADMIN
   OWNER
   SUPERADMIN
-  aaa
 }
