@@ -8,79 +8,200 @@ import express, {
 
 import cors from "cors";
 
-import authRoutes from "./routes/auth.routes";
-import companyRoutes from "./routes/company.routes";
-import userRoutes from "./routes/user.routes";
-import professionalRoutes from "./routes/professional.routes";
+import rutasAutenticacion from "./routes/auth.routes";
+import rutasEmpresas from "./routes/company.routes";
+import rutasUsuarios from "./routes/user.routes";
+import rutasProfesionales from "./routes/professional.routes";
 
 const app = express();
 
-const PORT = Number(process.env.PORT) || 4000;
+const PUERTO = Number(process.env.PORT) || 4000;
 
-const configuredOrigins = [
+// ======================================================
+// CONFIGURACIÓN GENERAL
+// ======================================================
+
+app.disable("x-powered-by");
+
+function normalizarOrigen(
+  origen: string
+): string {
+  return origen.trim().replace(/\/+$/, "");
+}
+
+const origenesConfigurados = [
   process.env.FRONTEND_URL,
-  ...(process.env.ALLOWED_ORIGINS?.split(",") ?? []),
+  ...(process.env.ALLOWED_ORIGINS?.split(",") ??
+    []),
 ]
-  .map((origin) => origin?.trim())
-  .filter((origin): origin is string => Boolean(origin));
+  .filter(
+    (origen): origen is string =>
+      typeof origen === "string" &&
+      Boolean(origen.trim())
+  )
+  .map(normalizarOrigen);
 
-const allowedOrigins = new Set([
+const origenesPermitidos = new Set([
   "http://localhost:5173",
   "http://localhost:3000",
-  ...configuredOrigins,
+  ...origenesConfigurados,
 ]);
+
+// ======================================================
+// CORS
+// ======================================================
 
 app.use(
   cors({
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.has(origin)) {
+    origin: (origen, callback) => {
+      /*
+       * Las solicitudes sin Origin normalmente provienen
+       * de Postman, curl, Render Health Check o servicios
+       * internos. Se permiten.
+       */
+      if (!origen) {
+        callback(null, true);
+        return;
+      }
+
+      const origenNormalizado =
+        normalizarOrigen(origen);
+
+      if (
+        origenesPermitidos.has(
+          origenNormalizado
+        )
+      ) {
         callback(null, true);
         return;
       }
 
       callback(
         new Error(
-          `Origen no permitido por CORS: ${origin}`
+          `Origen no permitido por CORS: ${origen}`
         )
       );
     },
     credentials: true,
+    methods: [
+      "GET",
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE",
+      "OPTIONS",
+    ],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+    ],
   })
 );
 
-app.use(express.json({
-  limit: "2mb",
-}));
+// ======================================================
+// PARSEO DE SOLICITUDES
+// ======================================================
 
-app.use(express.urlencoded({
-  extended: true,
-}));
+app.use(
+  express.json({
+    limit: "2mb",
+  })
+);
 
-app.get("/", (_req: Request, res: Response) => {
-  res.json({
-    message: "Servidor Stack44 operativo 🚀",
-    environment:
-      process.env.NODE_ENV ?? "development",
-  });
-});
+app.use(
+  express.urlencoded({
+    extended: true,
+    limit: "2mb",
+  })
+);
+
+// ======================================================
+// RUTAS DE ESTADO
+// ======================================================
 
 app.get(
-  "/health",
+  "/",
   (_req: Request, res: Response) => {
-    res.status(200).json({
-      status: "ok",
-      timestamp: new Date().toISOString(),
+    res.json({
+      mensaje:
+        "Servidor Stack44 operativo 🚀",
+      message:
+        "Servidor Stack44 operativo 🚀",
+      entorno:
+        process.env.NODE_ENV ??
+        "development",
+      environment:
+        process.env.NODE_ENV ??
+        "development",
+      api: {
+        autenticacion:
+          "/api/autenticacion",
+        empresas: "/api/empresas",
+        usuarios: "/api/usuarios",
+        profesionales:
+          "/api/profesionales",
+      },
     });
   }
 );
 
-app.use("/api/auth", authRoutes);
-app.use("/api/companies", companyRoutes);
-app.use("/api/users", userRoutes);
+const responderEstado = (
+  _req: Request,
+  res: Response
+): void => {
+  res.status(200).json({
+    estado: "ok",
+    status: "ok",
+    fechaHora: new Date().toISOString(),
+    timestamp:
+      new Date().toISOString(),
+  });
+};
+
+app.get("/salud", responderEstado);
+app.get("/health", responderEstado);
+
+// ======================================================
+// RUTAS PRINCIPALES EN ESPAÑOL
+// ======================================================
+
+app.use(
+  "/api/autenticacion",
+  rutasAutenticacion
+);
+
+app.use(
+  "/api/empresas",
+  rutasEmpresas
+);
+
+app.use(
+  "/api/usuarios",
+  rutasUsuarios
+);
+
+app.use(
+  "/api/profesionales",
+  rutasProfesionales
+);
+
+// ======================================================
+// ALIAS TEMPORALES PARA EL FRONTEND ACTUAL
+// ======================================================
+// Se conservarán mientras refactorizamos el frontend.
+
+app.use("/api/auth", rutasAutenticacion);
+app.use("/api/companies", rutasEmpresas);
+app.use("/api/users", rutasUsuarios);
+
 app.use(
   "/api/professionals",
-  professionalRoutes
+  rutasProfesionales
 );
+
+// ======================================================
+// RUTA NO ENCONTRADA
+// ======================================================
 
 app.use(
   (_req: Request, res: Response) => {
@@ -90,6 +211,10 @@ app.use(
   }
 );
 
+// ======================================================
+// MANEJO GLOBAL DE ERRORES
+// ======================================================
+
 app.use(
   (
     error: Error,
@@ -97,7 +222,10 @@ app.use(
     res: Response,
     _next: NextFunction
   ) => {
-    console.error("[GLOBAL-ERROR]", error);
+    console.error(
+      "[ERROR-GLOBAL]",
+      error
+    );
 
     if (
       error.message.startsWith(
@@ -110,20 +238,46 @@ app.use(
       return;
     }
 
+    if (
+      error instanceof SyntaxError &&
+      "body" in error
+    ) {
+      res.status(400).json({
+        error:
+          "El cuerpo JSON de la solicitud no es válido.",
+      });
+      return;
+    }
+
     res.status(500).json({
-      error: "Error interno del servidor.",
+      error:
+        "Error interno del servidor.",
     });
   }
 );
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(
-    `Servidor corriendo en el puerto ${PORT}`
-  );
+// ======================================================
+// INICIO DEL SERVIDOR
+// ======================================================
 
-  console.log(
-    `Orígenes autorizados: ${
-      [...allowedOrigins].join(", ") || "ninguno"
-    }`
-  );
-});
+app.listen(
+  PUERTO,
+  "0.0.0.0",
+  () => {
+    console.log(
+      `Servidor corriendo en el puerto ${PUERTO}`
+    );
+
+    console.log(
+      `Orígenes autorizados: ${
+        [...origenesPermitidos].join(
+          ", "
+        ) || "ninguno"
+      }`
+    );
+
+    console.log(
+      "API principal disponible en español."
+    );
+  }
+);

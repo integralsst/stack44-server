@@ -1,73 +1,57 @@
 import { Router } from "express";
-import { Role } from "@prisma/client";
-
-import { userController } from "../controllers/user.controller";
+import { RolUsuario } from "@prisma/client";
 
 import {
-  authenticate,
-  authorize,
+  controladorUsuario,
+} from "../controllers/user.controller";
+
+import {
+  authenticate as autenticar,
+  authorize as autorizar,
 } from "../middlewares/auth.middleware";
 
 const router = Router();
 
+const rolesGestionUsuarios = [
+  RolUsuario.SUPERADMIN,
+  RolUsuario.PROPIETARIO,
+  RolUsuario.ADMIN,
+  RolUsuario.ADMIN_CLIENTE,
+];
+
 router.get(
   "/",
-  authenticate,
-  authorize(
-    Role.SUPERADMIN,
-    Role.OWNER,
-    Role.ADMIN,
-    Role.CLIENT_ADMIN
-  ),
-  userController.getAll
+  autenticar,
+  autorizar(...rolesGestionUsuarios),
+  controladorUsuario.obtenerTodos
 );
 
 router.get(
   "/:id",
-  authenticate,
-  authorize(
-    Role.SUPERADMIN,
-    Role.OWNER,
-    Role.ADMIN,
-    Role.CLIENT_ADMIN
-  ),
-  userController.getById
+  autenticar,
+  autorizar(...rolesGestionUsuarios),
+  controladorUsuario.obtenerPorId
 );
 
 router.post(
   "/",
-  authenticate,
-  authorize(
-    Role.SUPERADMIN,
-    Role.OWNER,
-    Role.ADMIN,
-    Role.CLIENT_ADMIN
-  ),
-  userController.create
+  autenticar,
+  autorizar(...rolesGestionUsuarios),
+  controladorUsuario.crear
 );
 
 router.put(
   "/:id",
-  authenticate,
-  authorize(
-    Role.SUPERADMIN,
-    Role.OWNER,
-    Role.ADMIN,
-    Role.CLIENT_ADMIN
-  ),
-  userController.update
+  autenticar,
+  autorizar(...rolesGestionUsuarios),
+  controladorUsuario.actualizar
 );
 
 router.delete(
   "/:id",
-  authenticate,
-  authorize(
-    Role.SUPERADMIN,
-    Role.OWNER,
-    Role.ADMIN,
-    Role.CLIENT_ADMIN
-  ),
-  userController.delete
+  autenticar,
+  autorizar(...rolesGestionUsuarios),
+  controladorUsuario.eliminar
 );
 
 export default router;

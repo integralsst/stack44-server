@@ -1,58 +1,59 @@
 import { Router } from "express";
-import { Role } from "@prisma/client";
-
-import { companyController } from "../controllers/company.controller";
+import { RolUsuario } from "@prisma/client";
 
 import {
-  authenticate,
-  authorize,
+  controladorEmpresa,
+} from "../controllers/company.controller";
+
+import {
+  authenticate as autenticar,
+  authorize as autorizar,
 } from "../middlewares/auth.middleware";
 
 const router = Router();
 
+const rolesInternos = [
+  RolUsuario.SUPERADMIN,
+  RolUsuario.PROPIETARIO,
+  RolUsuario.ADMIN,
+];
+
+// Consultar empresas visibles para el usuario autenticado
 router.get(
   "/",
-  authenticate,
-  companyController.getAll
+  autenticar,
+  controladorEmpresa.obtenerTodas
 );
 
+// Consultar una empresa por ID
 router.get(
   "/:id",
-  authenticate,
-  companyController.getById
+  autenticar,
+  controladorEmpresa.obtenerPorId
 );
 
+// Crear empresa
 router.post(
   "/",
-  authenticate,
-  authorize(
-    Role.SUPERADMIN,
-    Role.OWNER,
-    Role.ADMIN
-  ),
-  companyController.create
+  autenticar,
+  autorizar(...rolesInternos),
+  controladorEmpresa.crear
 );
 
+// Actualizar empresa
 router.put(
   "/:id",
-  authenticate,
-  authorize(
-    Role.SUPERADMIN,
-    Role.OWNER,
-    Role.ADMIN
-  ),
-  companyController.update
+  autenticar,
+  autorizar(...rolesInternos),
+  controladorEmpresa.actualizar
 );
 
+// Desactivar empresa
 router.delete(
   "/:id",
-  authenticate,
-  authorize(
-    Role.SUPERADMIN,
-    Role.OWNER,
-    Role.ADMIN
-  ),
-  companyController.delete
+  autenticar,
+  autorizar(...rolesInternos),
+  controladorEmpresa.eliminar
 );
 
 export default router;

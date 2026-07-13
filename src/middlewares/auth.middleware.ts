@@ -1,121 +1,207 @@
-import { NextFunction, Request, Response } from "express";
-import { JwtPayload } from "jsonwebtoken";
-import jwt from "jsonwebtoken";
-import { Role } from "@prisma/client";
+import {
+  NextFunction,
+  Request,
+  Response,
+} from "express";
+import jwt, { JwtPayload } from "jsonwebtoken";
+import { RolUsuario } from "@prisma/client";
 
 import { prisma } from "../lib/prisma";
 
-interface AccessTokenPayload extends JwtPayload {
-  userId: string;
+interface PayloadTokenAcceso extends JwtPayload {
+  usuarioId?: string;
+
+  // Compatibilidad con tokens creados antes de la migración.
+  userId?: string;
 }
 
-function getJwtSecret(): string {
-  const secret = process.env.JWT_SECRET;
+function obtenerSecretoJwt(): string {
+  const secreto = process.env.JWT_SECRET;
 
-  if (!secret) {
-    throw new Error("JWT_SECRET no está configurado.");
+  if (!secreto) {
+    throw new Error(
+      "JWT_SECRET no está configurado."
+    );
   }
 
-  return secret;
+  return secreto;
 }
 
-export const authenticate = async (
+export const autenticar = async (
   req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
   try {
-    const authorization = req.headers.authorization;
+    const autorizacion =
+      req.headers.authorization;
 
-    if (!authorization?.startsWith("Bearer ")) {
+    if (
+      !autorizacion ||
+      !autorizacion.startsWith("Bearer ")
+    ) {
       res.status(401).json({
-        error: "Token de autenticación no proporcionado.",
+        error:
+          "Token de autenticación no proporcionado.",
       });
       return;
     }
 
-    const token = authorization.split(" ")[1];
+    const token = autorizacion
+      .slice("Bearer ".length)
+      .trim();
 
-    const decoded = jwt.verify(
-      token,
-      getJwtSecret()
-    ) as AccessTokenPayload;
-
-    if (!decoded.userId) {
+    if (!token) {
       res.status(401).json({
         error: "Token inválido.",
       });
       return;
     }
 
-    const user = await prisma.user.findUnique({
-      where: {
-        id: decoded.userId,
-      },
-      include: {
-        professional: {
-          select: {
-            id: true,
-            isActive: true,
-          },
-        },
-        company: {
-          select: {
-            id: true,
-            isActive: true,
-          },
-        },
-      },
-    });
+    const decodificado = jwt.verify(
+      token,
+      obtenerSecretoJwt()
+    ) as PayloadTokenAcceso;
 
-    if (!user) {
+    const usuarioId =
+      decodificado.usuarioId ??
+      decodificado.userId;
+
+    if (!usuarioId) {
       res.status(401).json({
-        error: "El usuario asociado al token no existe.",
+        error:
+          "El token no contiene un usuario válido.",
       });
       return;
     }
 
-    if (!user.isActive) {
+    const usuario =
+      await prisma.usuario.findUnique({
+        where: {
+          id: usuarioId,
+        },
+        include: {
+          profesional: {
+            select: {
+              id: true,
+              activo: true,
+            },
+          },
+          empresa: {
+            select: {
+              id: true,
+              activo: true,
+            },
+          },
+        },
+      });
+
+    if (!usuario) {
+      res.status(401).json({
+        error:
+          "El usuario asociado al token no existe.",
+      });
+      return;
+    }
+
+    if (!usuario.activo) {
       res.status(403).json({
         error: "Tu cuenta está inactiva.",
       });
       return;
     }
 
+    const esUsuarioCliente =
+      usuario.rol ===
+        RolUsuario.ADMIN_CLIENTE ||
+      usuario.rol ===
+        RolUsuario.USUARIO_CLIENTE;
+
     if (
-      (user.role === Role.CLIENT_ADMIN ||
-        user.role === Role.CLIENT_USER) &&
-      user.company &&
-      !user.company.isActive
+      esUsuarioCliente &&
+      !usuario.empresa
     ) {
       res.status(403).json({
-        error: "La empresa asociada a tu cuenta está inactiva.",
+        error:
+          "Tu usuario no tiene una empresa asignada.",
       });
       return;
     }
 
     if (
-      user.role === Role.PROFESSIONAL &&
-      user.professional &&
-      !user.professional.isActive
+      esUsuarioCliente &&
+      usuario.empresa &&
+      !usuario.empresa.activo
     ) {
       res.status(403).json({
-        error: "El perfil profesional está inactivo.",
+        error:
+          "La empresa asociada a tu cuenta está inactiva.",
       });
       return;
     }
+
+    if (
+      usuario.rol ===
+        RolUsuario.PROFESIONAL &&
+      !usuario.profesional
+    ) {
+      res.status(403).json({
+        error:
+          "Tu usuario no está vinculado con un perfil profesional.",
+      });
+      return;
+    }
+
+    if (
+      usuario.rol ===
+        RolUsuario.PROFESIONAL &&
+      usuario.profesional &&
+      !usuario.profesional.activo
+    ) {
+      res.status(403).json({
+        error:
+          "El perfil profesional está inactivo.",
+      });
+      return;
+    }
+
+    const profesionalId =
+      usuario.profesional?.id ?? null;
 
     req.user = {
-      userId: user.id,
-      email: user.email,
-      role: user.role,
-      companyId: user.companyId,
-      professionalId: user.professional?.id ?? null,
+      // Campos canónicos en español.
+      usuarioId: usuario.id,
+      correo: usuario.correo,
+      rol: usuario.rol,
+      empresaId: usuario.empresaId,
+      profesionalId,
+
+      // Compatibilidad temporal.
+      userId: usuario.id,
+      email: usuario.correo,
+      role: usuario.rol,
+      companyId: usuario.empresaId,
+      professionalId: profesionalId,
     };
 
     next();
   } catch (error) {
-    console.error("[AUTH-MIDDLEWARE]", error);
+    console.error(
+      "[MIDDLEWARE-AUTENTICACION]",
+      error
+    );
+
+    if (
+      error instanceof Error &&
+      error.message ===
+        "JWT_SECRET no está configurado."
+    ) {
+      res.status(500).json({
+        error:
+          "La autenticación no está configurada correctamente.",
+      });
+      return;
+    }
 
     res.status(401).json({
       error: "Token inválido o vencido.",
@@ -123,7 +209,9 @@ export const authenticate = async (
   }
 };
 
-export const authorize = (...allowedRoles: Role[]) => {
+export const autorizar = (
+  ...rolesPermitidos: RolUsuario[]
+) => {
   return (
     req: Request,
     res: Response,
@@ -136,9 +224,14 @@ export const authorize = (...allowedRoles: Role[]) => {
       return;
     }
 
-    if (!allowedRoles.includes(req.user.role)) {
+    if (
+      !rolesPermitidos.includes(
+        req.user.rol
+      )
+    ) {
       res.status(403).json({
-        error: "No tienes permisos para realizar esta acción.",
+        error:
+          "No tienes permisos para realizar esta acción.",
       });
       return;
     }
@@ -146,3 +239,10 @@ export const authorize = (...allowedRoles: Role[]) => {
     next();
   };
 };
+
+// ======================================================
+// ALIASES TEMPORALES PARA LAS RUTAS EXISTENTES
+// ======================================================
+
+export const authenticate = autenticar;
+export const authorize = autorizar;

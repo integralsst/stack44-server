@@ -1,150 +1,338 @@
 import { Request, Response } from "express";
 import {
   Prisma,
-  Role,
+  RolUsuario,
 } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 import { prisma } from "../lib/prisma";
 import {
-  canAssignRole,
-  canManageTargetRole,
-  isClientRole,
-  isInternalRole,
+  esRolCliente,
+  esRolInterno,
+  puedeAsignarRol,
+  puedeGestionarRolObjetivo,
 } from "../utils/access";
 
-const publicUserSelect = {
+const seleccionUsuarioPublico = {
   id: true,
-  name: true,
-  email: true,
-  role: true,
-  companyId: true,
-  isActive: true,
-  createdAt: true,
-  updatedAt: true,
-  company: {
+  nombre: true,
+  correo: true,
+  rol: true,
+  empresaId: true,
+  activo: true,
+  creadoEn: true,
+  actualizadoEn: true,
+  empresa: {
     select: {
       id: true,
-      name: true,
-      taxId: true,
-      isActive: true,
+      nombre: true,
+      nit: true,
+      activo: true,
     },
   },
-  professional: {
+  profesional: {
     select: {
       id: true,
-      firstNames: true,
-      lastNames: true,
-      identificationNumber: true,
-      profession: true,
-      professionalRole: true,
-      isActive: true,
+      nombres: true,
+      apellidos: true,
+      numeroIdentificacion: true,
+      profesion: true,
+      rolProfesional: true,
+      activo: true,
     },
   },
-} satisfies Prisma.UserSelect;
+} satisfies Prisma.UsuarioSelect;
 
-function normalizeEmail(value: unknown): string {
+type RolAnterior =
+  | "USER"
+  | "CLIENT_USER"
+  | "CLIENT_ADMIN"
+  | "PROFESSIONAL"
+  | "ADMIN"
+  | "OWNER"
+  | "SUPERADMIN";
+
+function convertirRolAnterior(
+  rol: RolUsuario
+): RolAnterior {
+  const equivalencias: Record<
+    RolUsuario,
+    RolAnterior
+  > = {
+    [RolUsuario.USUARIO]: "USER",
+    [RolUsuario.USUARIO_CLIENTE]:
+      "CLIENT_USER",
+    [RolUsuario.ADMIN_CLIENTE]:
+      "CLIENT_ADMIN",
+    [RolUsuario.PROFESIONAL]:
+      "PROFESSIONAL",
+    [RolUsuario.ADMIN]: "ADMIN",
+    [RolUsuario.PROPIETARIO]:
+      "OWNER",
+    [RolUsuario.SUPERADMIN]:
+      "SUPERADMIN",
+  };
+
+  return equivalencias[rol];
+}
+
+function normalizarCorreo(
+  value: unknown
+): string {
   return typeof value === "string"
     ? value.trim().toLowerCase()
     : "";
 }
 
-function normalizeString(value: unknown): string {
+function normalizarTexto(
+  value: unknown
+): string {
   return typeof value === "string"
     ? value.trim()
     : "";
 }
 
-function parseRole(value: unknown): Role | null {
-  return Object.values(Role).includes(value as Role)
-    ? (value as Role)
+function obtenerCampo(
+  body: Record<string, unknown>,
+  nombreEspanol: string,
+  nombreAnterior: string
+): unknown {
+  if (
+    Object.prototype.hasOwnProperty.call(
+      body,
+      nombreEspanol
+    )
+  ) {
+    return body[nombreEspanol];
+  }
+
+  return body[nombreAnterior];
+}
+
+function convertirRol(
+  value: unknown
+): RolUsuario | null {
+  if (
+    Object.values(RolUsuario).includes(
+      value as RolUsuario
+    )
+  ) {
+    return value as RolUsuario;
+  }
+
+  const equivalencias: Record<
+    string,
+    RolUsuario
+  > = {
+    USER: RolUsuario.USUARIO,
+    CLIENT_USER:
+      RolUsuario.USUARIO_CLIENTE,
+    CLIENT_ADMIN:
+      RolUsuario.ADMIN_CLIENTE,
+    PROFESSIONAL:
+      RolUsuario.PROFESIONAL,
+    ADMIN: RolUsuario.ADMIN,
+    OWNER: RolUsuario.PROPIETARIO,
+    SUPERADMIN:
+      RolUsuario.SUPERADMIN,
+  };
+
+  return typeof value === "string"
+    ? equivalencias[value] ?? null
     : null;
 }
 
-async function validateCompany(
-  companyId: string
-): Promise<boolean> {
-  const company = await prisma.company.findFirst({
-    where: {
-      id: companyId,
-      isActive: true,
-    },
-    select: {
-      id: true,
-    },
-  });
+function serializarEmpresa(
+  empresa:
+    | {
+        id: string;
+        nombre: string;
+        nit: string;
+        activo: boolean;
+      }
+    | null
+) {
+  if (!empresa) {
+    return null;
+  }
 
-  return Boolean(company);
+  return {
+    ...empresa,
+    name: empresa.nombre,
+    taxId: empresa.nit,
+    isActive: empresa.activo,
+  };
 }
 
-async function validateProfessional(
-  professionalId: string,
-  currentUserId?: string
+function serializarProfesional(
+  profesional:
+    | {
+        id: string;
+        nombres: string;
+        apellidos: string;
+        numeroIdentificacion: string;
+        profesion: string | null;
+        rolProfesional: string | null;
+        activo: boolean;
+      }
+    | null
 ) {
-  const professional =
-    await prisma.professional.findUnique({
+  if (!profesional) {
+    return null;
+  }
+
+  return {
+    ...profesional,
+    firstNames: profesional.nombres,
+    lastNames: profesional.apellidos,
+    identificationNumber:
+      profesional.numeroIdentificacion,
+    profession: profesional.profesion,
+    professionalRole:
+      profesional.rolProfesional,
+    isActive: profesional.activo,
+  };
+}
+
+function serializarUsuario(
+  usuario: Prisma.UsuarioGetPayload<{
+    select: typeof seleccionUsuarioPublico;
+  }>
+) {
+  const profesionalId =
+    usuario.profesional?.id ?? null;
+
+  const empresa =
+    serializarEmpresa(usuario.empresa);
+
+  const profesional =
+    serializarProfesional(
+      usuario.profesional
+    );
+
+  return {
+    ...usuario,
+
+    // Campos nuevos en español.
+    profesionalId,
+    empresa,
+    profesional,
+
+    // Alias temporales para el frontend anterior.
+    name: usuario.nombre,
+    email: usuario.correo,
+    role: convertirRolAnterior(
+      usuario.rol
+    ),
+    companyId: usuario.empresaId,
+    professionalId: profesionalId,
+    isActive: usuario.activo,
+    createdAt: usuario.creadoEn,
+    updatedAt: usuario.actualizadoEn,
+    company: empresa,
+    professional: profesional,
+  };
+}
+
+async function validarEmpresa(
+  empresaId: string
+): Promise<boolean> {
+  const empresa =
+    await prisma.empresa.findFirst({
       where: {
-        id: professionalId,
+        id: empresaId,
+        activo: true,
       },
       select: {
         id: true,
-        isActive: true,
-        userId: true,
       },
     });
 
-  if (!professional || !professional.isActive) {
+  return Boolean(empresa);
+}
+
+async function validarProfesional(
+  profesionalId: string,
+  usuarioActualId?: string
+): Promise<{
+  valido: boolean;
+  error?: string;
+}> {
+  const profesional =
+    await prisma.profesional.findUnique({
+      where: {
+        id: profesionalId,
+      },
+      select: {
+        id: true,
+        activo: true,
+        usuarioId: true,
+      },
+    });
+
+  if (
+    !profesional ||
+    !profesional.activo
+  ) {
     return {
-      valid: false,
+      valido: false,
       error:
         "El perfil profesional no existe o está inactivo.",
     };
   }
 
   if (
-    professional.userId &&
-    professional.userId !== currentUserId
+    profesional.usuarioId &&
+    profesional.usuarioId !==
+      usuarioActualId
   ) {
     return {
-      valid: false,
+      valido: false,
       error:
         "El profesional ya está relacionado con otro usuario.",
     };
   }
 
   return {
-    valid: true,
-    professional,
+    valido: true,
   };
 }
 
-function canManageUser(
-  actor: Express.AuthenticatedUser,
-  target: {
+function puedeGestionarUsuario(
+  actor: Express.UsuarioAutenticado,
+  objetivo: {
     id: string;
-    role: Role;
-    companyId: string | null;
+    rol: RolUsuario;
+    empresaId: string | null;
   }
 ): boolean {
-  if (actor.userId === target.id) {
+  if (actor.usuarioId === objetivo.id) {
     return true;
   }
 
-  if (actor.role === Role.CLIENT_ADMIN) {
+  if (
+    actor.rol ===
+    RolUsuario.ADMIN_CLIENTE
+  ) {
     return (
-      target.companyId === actor.companyId &&
-      target.role === Role.CLIENT_USER
+      objetivo.empresaId ===
+        actor.empresaId &&
+      objetivo.rol ===
+        RolUsuario.USUARIO_CLIENTE
     );
   }
 
   return (
-    isInternalRole(actor.role) &&
-    canManageTargetRole(actor.role, target.role)
+    esRolInterno(actor.rol) &&
+    puedeGestionarRolObjetivo(
+      actor.rol,
+      objetivo.rol
+    )
   );
 }
 
-export const userController = {
-  getAll: async (
+export const controladorUsuario = {
+  obtenerTodos: async (
     req: Request,
     res: Response
   ): Promise<void> => {
@@ -156,56 +344,78 @@ export const userController = {
         return;
       }
 
-      const search = normalizeString(req.query.search);
-      const includeInactive =
-        req.query.includeInactive === "true";
+      const busqueda = normalizarTexto(
+        req.query.busqueda ??
+          req.query.search
+      );
 
-      const where: Prisma.UserWhereInput = {};
+      const incluirInactivos =
+        req.query.incluirInactivos ===
+          "true" ||
+        req.query.includeInactive ===
+          "true";
 
-      if (req.user.role === Role.CLIENT_ADMIN) {
-        where.companyId = req.user.companyId;
-      } else if (!isInternalRole(req.user.role)) {
-        where.id = req.user.userId;
+      const where: Prisma.UsuarioWhereInput =
+        {};
+
+      if (
+        req.user.rol ===
+        RolUsuario.ADMIN_CLIENTE
+      ) {
+        where.empresaId =
+          req.user.empresaId;
+      } else if (
+        !esRolInterno(req.user.rol)
+      ) {
+        where.id = req.user.usuarioId;
       }
 
-      if (!includeInactive) {
-        where.isActive = true;
+      if (!incluirInactivos) {
+        where.activo = true;
       }
 
-      if (search) {
+      if (busqueda) {
         where.OR = [
           {
-            name: {
-              contains: search,
+            nombre: {
+              contains: busqueda,
             },
           },
           {
-            email: {
-              contains: search,
+            correo: {
+              contains: busqueda,
             },
           },
         ];
       }
 
-      const users = await prisma.user.findMany({
-        where,
-        select: publicUserSelect,
-        orderBy: {
-          createdAt: "desc",
-        },
-      });
+      const usuarios =
+        await prisma.usuario.findMany({
+          where,
+          select:
+            seleccionUsuarioPublico,
+          orderBy: {
+            creadoEn: "desc",
+          },
+        });
 
-      res.json(users);
+      res.json(
+        usuarios.map(serializarUsuario)
+      );
     } catch (error) {
-      console.error("[USER-GET-ALL]", error);
+      console.error(
+        "[USUARIO-OBTENER-TODOS]",
+        error
+      );
 
       res.status(500).json({
-        error: "Error al obtener usuarios.",
+        error:
+          "Error al obtener usuarios.",
       });
     }
   },
 
-  getById: async (
+  obtenerPorId: async (
     req: Request,
     res: Response
   ): Promise<void> => {
@@ -219,38 +429,53 @@ export const userController = {
 
       const id = String(req.params.id);
 
-      const target = await prisma.user.findUnique({
-        where: {
-          id,
-        },
-        select: publicUserSelect,
-      });
+      const objetivo =
+        await prisma.usuario.findUnique({
+          where: {
+            id,
+          },
+          select:
+            seleccionUsuarioPublico,
+        });
 
-      if (!target) {
+      if (!objetivo) {
         res.status(404).json({
-          error: "Usuario no encontrado.",
+          error:
+            "Usuario no encontrado.",
         });
         return;
       }
 
-      if (!canManageUser(req.user, target)) {
+      if (
+        !puedeGestionarUsuario(
+          req.user,
+          objetivo
+        )
+      ) {
         res.status(403).json({
-          error: "No tienes acceso a este usuario.",
+          error:
+            "No tienes acceso a este usuario.",
         });
         return;
       }
 
-      res.json(target);
+      res.json(
+        serializarUsuario(objetivo)
+      );
     } catch (error) {
-      console.error("[USER-GET-BY-ID]", error);
+      console.error(
+        "[USUARIO-OBTENER-POR-ID]",
+        error
+      );
 
       res.status(500).json({
-        error: "Error al consultar el usuario.",
+        error:
+          "Error al consultar el usuario.",
       });
     }
   },
 
-  create: async (
+  crear: async (
     req: Request,
     res: Response
   ): Promise<void> => {
@@ -262,21 +487,66 @@ export const userController = {
         return;
       }
 
-      const name = normalizeString(req.body.name);
-      const email = normalizeEmail(req.body.email);
-      const password =
-        typeof req.body.password === "string"
-          ? req.body.password
+      const nombre = normalizarTexto(
+        obtenerCampo(
+          req.body,
+          "nombre",
+          "name"
+        )
+      );
+
+      const correo = normalizarCorreo(
+        obtenerCampo(
+          req.body,
+          "correo",
+          "email"
+        )
+      );
+
+      const valueContrasena =
+        obtenerCampo(
+          req.body,
+          "contrasena",
+          "password"
+        );
+
+      const contrasena =
+        typeof valueContrasena === "string"
+          ? valueContrasena
           : "";
 
-      let role = parseRole(req.body.role) ?? Role.USER;
-      let companyId: string | null =
-        normalizeString(req.body.companyId) || null;
+      let rol =
+        convertirRol(
+          obtenerCampo(
+            req.body,
+            "rol",
+            "role"
+          )
+        ) ?? RolUsuario.USUARIO;
 
-      const professionalId =
-        normalizeString(req.body.professionalId) || null;
+      let empresaId =
+        normalizarTexto(
+          obtenerCampo(
+            req.body,
+            "empresaId",
+            "companyId"
+          )
+        ) || null;
 
-      if (!name || !email || !password) {
+      const profesionalId =
+        normalizarTexto(
+          obtenerCampo(
+            req.body,
+            "profesionalId",
+            "professionalId"
+          )
+        ) || null;
+
+      if (
+        !nombre ||
+        !correo ||
+        !contrasena
+      ) {
         res.status(400).json({
           error:
             "Nombre, correo y contraseña son obligatorios.",
@@ -284,7 +554,7 @@ export const userController = {
         return;
       }
 
-      if (password.length < 8) {
+      if (contrasena.length < 8) {
         res.status(400).json({
           error:
             "La contraseña debe tener mínimo 8 caracteres.",
@@ -292,11 +562,18 @@ export const userController = {
         return;
       }
 
-      if (req.user.role === Role.CLIENT_ADMIN) {
-        role = Role.CLIENT_USER;
-        companyId = req.user.companyId;
+      if (
+        req.user.rol ===
+        RolUsuario.ADMIN_CLIENTE
+      ) {
+        rol =
+          RolUsuario.USUARIO_CLIENTE;
+        empresaId = req.user.empresaId;
       } else if (
-        !canAssignRole(req.user.role, role)
+        !puedeAsignarRol(
+          req.user.rol,
+          rol
+        )
       ) {
         res.status(403).json({
           error:
@@ -305,8 +582,8 @@ export const userController = {
         return;
       }
 
-      if (isClientRole(role)) {
-        if (!companyId) {
+      if (esRolCliente(rol)) {
+        if (!empresaId) {
           res.status(400).json({
             error:
               "Los usuarios cliente deben pertenecer a una empresa.",
@@ -314,7 +591,11 @@ export const userController = {
           return;
         }
 
-        if (!(await validateCompany(companyId))) {
+        if (
+          !(await validarEmpresa(
+            empresaId
+          ))
+        ) {
           res.status(400).json({
             error:
               "La empresa seleccionada no existe o está inactiva.",
@@ -323,10 +604,12 @@ export const userController = {
         }
       }
 
-      if (role === Role.PROFESSIONAL) {
-        companyId = null;
+      if (
+        rol === RolUsuario.PROFESIONAL
+      ) {
+        empresaId = null;
 
-        if (!professionalId) {
+        if (!profesionalId) {
           res.status(400).json({
             error:
               "Debes seleccionar un perfil profesional.",
@@ -334,18 +617,20 @@ export const userController = {
           return;
         }
 
-        const validation =
-          await validateProfessional(professionalId);
+        const validacion =
+          await validarProfesional(
+            profesionalId
+          );
 
-        if (!validation.valid) {
+        if (!validacion.valido) {
           res.status(400).json({
-            error: validation.error,
+            error: validacion.error,
           });
           return;
         }
       } else if (
-        companyId &&
-        !(await validateCompany(companyId))
+        empresaId &&
+        !(await validarEmpresa(empresaId))
       ) {
         res.status(400).json({
           error:
@@ -354,55 +639,84 @@ export const userController = {
         return;
       }
 
-      const hashedPassword = await bcrypt.hash(
-        password,
-        10
+      const contrasenaEncriptada =
+        await bcrypt.hash(
+          contrasena,
+          10
+        );
+
+      const usuarioCreado =
+        await prisma.$transaction(
+          async (tx) => {
+            const usuario =
+              await tx.usuario.create({
+                data: {
+                  nombre,
+                  correo,
+                  contrasena:
+                    contrasenaEncriptada,
+                  rol,
+                  empresaId,
+                  activo:
+                    typeof obtenerCampo(
+                      req.body,
+                      "activo",
+                      "isActive"
+                    ) === "boolean"
+                      ? Boolean(
+                          obtenerCampo(
+                            req.body,
+                            "activo",
+                            "isActive"
+                          )
+                        )
+                      : true,
+                },
+              });
+
+            if (
+              rol ===
+                RolUsuario.PROFESIONAL &&
+              profesionalId
+            ) {
+              await tx.profesional.update({
+                where: {
+                  id: profesionalId,
+                },
+                data: {
+                  usuarioId: usuario.id,
+                },
+              });
+            }
+
+            return tx.usuario.findUniqueOrThrow(
+              {
+                where: {
+                  id: usuario.id,
+                },
+                select:
+                  seleccionUsuarioPublico,
+              }
+            );
+          }
+        );
+
+      res
+        .status(201)
+        .json(
+          serializarUsuario(
+            usuarioCreado
+          )
+        );
+    } catch (error) {
+      console.error(
+        "[USUARIO-CREAR]",
+        error
       );
 
-      const createdUser =
-        await prisma.$transaction(async (tx) => {
-          const user = await tx.user.create({
-            data: {
-              name,
-              email,
-              password: hashedPassword,
-              role,
-              companyId,
-              isActive:
-                typeof req.body.isActive === "boolean"
-                  ? req.body.isActive
-                  : true,
-            },
-          });
-
-          if (
-            role === Role.PROFESSIONAL &&
-            professionalId
-          ) {
-            await tx.professional.update({
-              where: {
-                id: professionalId,
-              },
-              data: {
-                userId: user.id,
-              },
-            });
-          }
-
-          return tx.user.findUniqueOrThrow({
-            where: {
-              id: user.id,
-            },
-            select: publicUserSelect,
-          });
-        });
-
-      res.status(201).json(createdUser);
-    } catch (error) {
-      console.error("[USER-CREATE]", error);
-
       if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error instanceof
+          Prisma.PrismaClientKnownRequestError &&
         error.code === "P2002"
       ) {
         res.status(409).json({
@@ -413,12 +727,13 @@ export const userController = {
       }
 
       res.status(500).json({
-        error: "Error al crear usuario.",
+        error:
+          "Error al crear usuario.",
       });
     }
   },
 
-  update: async (
+  actualizar: async (
     req: Request,
     res: Response
   ): Promise<void> => {
@@ -432,27 +747,34 @@ export const userController = {
 
       const id = String(req.params.id);
 
-      const target = await prisma.user.findUnique({
-        where: {
-          id,
-        },
-        include: {
-          professional: {
-            select: {
-              id: true,
+      const objetivo =
+        await prisma.usuario.findUnique({
+          where: {
+            id,
+          },
+          include: {
+            profesional: {
+              select: {
+                id: true,
+              },
             },
           },
-        },
-      });
+        });
 
-      if (!target) {
+      if (!objetivo) {
         res.status(404).json({
-          error: "Usuario no encontrado.",
+          error:
+            "Usuario no encontrado.",
         });
         return;
       }
 
-      if (!canManageUser(req.user, target)) {
+      if (
+        !puedeGestionarUsuario(
+          req.user,
+          objetivo
+        )
+      ) {
         res.status(403).json({
           error:
             "No tienes permiso para editar este usuario.",
@@ -460,36 +782,79 @@ export const userController = {
         return;
       }
 
-      const isSelf = req.user.userId === target.id;
+      const esPropio =
+        req.user.usuarioId ===
+        objetivo.id;
 
-      const finalRole =
-        parseRole(req.body.role) ?? target.role;
+      const rolSolicitado =
+        obtenerCampo(
+          req.body,
+          "rol",
+          "role"
+        );
 
-      let finalCompanyId =
-        req.body.companyId !== undefined
-          ? normalizeString(req.body.companyId) || null
-          : target.companyId;
+      const rolFinal =
+        convertirRol(rolSolicitado) ??
+        objetivo.rol;
 
-      const requestedProfessionalId =
-        req.body.professionalId !== undefined
-          ? normalizeString(req.body.professionalId) || null
-          : target.professional?.id ?? null;
+      const empresaIdSolicitada =
+        obtenerCampo(
+          req.body,
+          "empresaId",
+          "companyId"
+        );
 
-      if (!isSelf) {
+      let empresaIdFinal =
+        empresaIdSolicitada !== undefined
+          ? normalizarTexto(
+              empresaIdSolicitada
+            ) || null
+          : objetivo.empresaId;
+
+      const profesionalIdSolicitado =
+        obtenerCampo(
+          req.body,
+          "profesionalId",
+          "professionalId"
+        );
+
+      const profesionalIdFinal =
+        profesionalIdSolicitado !==
+        undefined
+          ? normalizarTexto(
+              profesionalIdSolicitado
+            ) || null
+          : objetivo.profesional?.id ??
+            null;
+
+      const activoSolicitado =
+        obtenerCampo(
+          req.body,
+          "activo",
+          "isActive"
+        );
+
+      if (!esPropio) {
         if (
-          req.user.role === Role.CLIENT_ADMIN &&
-          finalRole !== Role.CLIENT_USER
+          req.user.rol ===
+            RolUsuario.ADMIN_CLIENTE &&
+          rolFinal !==
+            RolUsuario.USUARIO_CLIENTE
         ) {
           res.status(403).json({
             error:
-              "Un administrador cliente solo puede gestionar usuarios CLIENT_USER.",
+              "Un administrador cliente solo puede gestionar usuarios cliente.",
           });
           return;
         }
 
         if (
-          req.user.role !== Role.CLIENT_ADMIN &&
-          !canAssignRole(req.user.role, finalRole)
+          req.user.rol !==
+            RolUsuario.ADMIN_CLIENTE &&
+          !puedeAsignarRol(
+            req.user.rol,
+            rolFinal
+          )
         ) {
           res.status(403).json({
             error:
@@ -500,11 +865,14 @@ export const userController = {
       }
 
       if (
-        isSelf &&
-        (req.body.role !== undefined ||
-          req.body.companyId !== undefined ||
-          req.body.isActive !== undefined ||
-          req.body.professionalId !== undefined)
+        esPropio &&
+        (rolSolicitado !== undefined ||
+          empresaIdSolicitada !==
+            undefined ||
+          activoSolicitado !==
+            undefined ||
+          profesionalIdSolicitado !==
+            undefined)
       ) {
         res.status(403).json({
           error:
@@ -513,12 +881,16 @@ export const userController = {
         return;
       }
 
-      if (req.user.role === Role.CLIENT_ADMIN) {
-        finalCompanyId = req.user.companyId;
+      if (
+        req.user.rol ===
+        RolUsuario.ADMIN_CLIENTE
+      ) {
+        empresaIdFinal =
+          req.user.empresaId;
       }
 
-      if (isClientRole(finalRole)) {
-        if (!finalCompanyId) {
+      if (esRolCliente(rolFinal)) {
+        if (!empresaIdFinal) {
           res.status(400).json({
             error:
               "Los usuarios cliente deben pertenecer a una empresa.",
@@ -526,7 +898,11 @@ export const userController = {
           return;
         }
 
-        if (!(await validateCompany(finalCompanyId))) {
+        if (
+          !(await validarEmpresa(
+            empresaIdFinal
+          ))
+        ) {
           res.status(400).json({
             error:
               "La empresa seleccionada no existe o está inactiva.",
@@ -535,10 +911,13 @@ export const userController = {
         }
       }
 
-      if (finalRole === Role.PROFESSIONAL) {
-        finalCompanyId = null;
+      if (
+        rolFinal ===
+        RolUsuario.PROFESIONAL
+      ) {
+        empresaIdFinal = null;
 
-        if (!requestedProfessionalId) {
+        if (!profesionalIdFinal) {
           res.status(400).json({
             error:
               "Debes seleccionar un perfil profesional.",
@@ -546,21 +925,23 @@ export const userController = {
           return;
         }
 
-        const validation =
-          await validateProfessional(
-            requestedProfessionalId,
-            target.id
+        const validacion =
+          await validarProfesional(
+            profesionalIdFinal,
+            objetivo.id
           );
 
-        if (!validation.valid) {
+        if (!validacion.valido) {
           res.status(400).json({
-            error: validation.error,
+            error: validacion.error,
           });
           return;
         }
       } else if (
-        finalCompanyId &&
-        !(await validateCompany(finalCompanyId))
+        empresaIdFinal &&
+        !(await validarEmpresa(
+          empresaIdFinal
+        ))
       ) {
         res.status(400).json({
           error:
@@ -569,40 +950,73 @@ export const userController = {
         return;
       }
 
-      const updateData: Prisma.UserUncheckedUpdateInput =
-        {};
+      const data:
+        Prisma.UsuarioUncheckedUpdateInput =
+          {};
 
-      if (req.body.name !== undefined) {
-        const name = normalizeString(req.body.name);
+      const nombreSolicitado =
+        obtenerCampo(
+          req.body,
+          "nombre",
+          "name"
+        );
 
-        if (!name) {
+      if (nombreSolicitado !== undefined) {
+        const nombre =
+          normalizarTexto(
+            nombreSolicitado
+          );
+
+        if (!nombre) {
           res.status(400).json({
-            error: "El nombre no puede estar vacío.",
+            error:
+              "El nombre no puede estar vacío.",
           });
           return;
         }
 
-        updateData.name = name;
+        data.nombre = nombre;
       }
 
-      if (req.body.email !== undefined) {
-        const email = normalizeEmail(req.body.email);
+      const correoSolicitado =
+        obtenerCampo(
+          req.body,
+          "correo",
+          "email"
+        );
 
-        if (!email) {
+      if (correoSolicitado !== undefined) {
+        const correo =
+          normalizarCorreo(
+            correoSolicitado
+          );
+
+        if (!correo) {
           res.status(400).json({
-            error: "El correo no puede estar vacío.",
+            error:
+              "El correo no puede estar vacío.",
           });
           return;
         }
 
-        updateData.email = email;
+        data.correo = correo;
       }
+
+      const contrasenaSolicitada =
+        obtenerCampo(
+          req.body,
+          "contrasena",
+          "password"
+        );
 
       if (
-        typeof req.body.password === "string" &&
-        req.body.password.trim()
+        typeof contrasenaSolicitada ===
+          "string" &&
+        contrasenaSolicitada.trim()
       ) {
-        if (req.body.password.length < 8) {
+        if (
+          contrasenaSolicitada.length < 8
+        ) {
           res.status(400).json({
             error:
               "La contraseña debe tener mínimo 8 caracteres.",
@@ -610,74 +1024,96 @@ export const userController = {
           return;
         }
 
-        updateData.password = await bcrypt.hash(
-          req.body.password,
-          10
-        );
+        data.contrasena =
+          await bcrypt.hash(
+            contrasenaSolicitada,
+            10
+          );
       }
 
-      if (!isSelf) {
-        updateData.role = finalRole;
-        updateData.companyId = finalCompanyId;
+      if (!esPropio) {
+        data.rol = rolFinal;
+        data.empresaId =
+          empresaIdFinal;
 
-        if (typeof req.body.isActive === "boolean") {
-          updateData.isActive = req.body.isActive;
+        if (
+          typeof activoSolicitado ===
+          "boolean"
+        ) {
+          data.activo =
+            activoSolicitado;
         }
       }
 
-      const updatedUser =
-        await prisma.$transaction(async (tx) => {
-          if (
-            target.professional &&
-            (finalRole !== Role.PROFESSIONAL ||
-              requestedProfessionalId !==
-                target.professional.id)
-          ) {
-            await tx.professional.update({
+      const usuarioActualizado =
+        await prisma.$transaction(
+          async (tx) => {
+            if (
+              objetivo.profesional &&
+              (rolFinal !==
+                RolUsuario.PROFESIONAL ||
+                profesionalIdFinal !==
+                  objetivo.profesional.id)
+            ) {
+              await tx.profesional.update({
+                where: {
+                  id: objetivo.profesional
+                    .id,
+                },
+                data: {
+                  usuarioId: null,
+                },
+              });
+            }
+
+            await tx.usuario.update({
               where: {
-                id: target.professional.id,
+                id,
               },
-              data: {
-                userId: null,
-              },
+              data,
             });
+
+            if (
+              rolFinal ===
+                RolUsuario.PROFESIONAL &&
+              profesionalIdFinal
+            ) {
+              await tx.profesional.update({
+                where: {
+                  id: profesionalIdFinal,
+                },
+                data: {
+                  usuarioId: id,
+                },
+              });
+            }
+
+            return tx.usuario.findUniqueOrThrow(
+              {
+                where: {
+                  id,
+                },
+                select:
+                  seleccionUsuarioPublico,
+              }
+            );
           }
+        );
 
-          await tx.user.update({
-            where: {
-              id,
-            },
-            data: updateData,
-          });
-
-          if (
-            finalRole === Role.PROFESSIONAL &&
-            requestedProfessionalId
-          ) {
-            await tx.professional.update({
-              where: {
-                id: requestedProfessionalId,
-              },
-              data: {
-                userId: id,
-              },
-            });
-          }
-
-          return tx.user.findUniqueOrThrow({
-            where: {
-              id,
-            },
-            select: publicUserSelect,
-          });
-        });
-
-      res.json(updatedUser);
+      res.json(
+        serializarUsuario(
+          usuarioActualizado
+        )
+      );
     } catch (error) {
-      console.error("[USER-UPDATE]", error);
+      console.error(
+        "[USUARIO-ACTUALIZAR]",
+        error
+      );
 
       if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error instanceof
+          Prisma.PrismaClientKnownRequestError &&
         error.code === "P2002"
       ) {
         res.status(409).json({
@@ -688,12 +1124,13 @@ export const userController = {
       }
 
       res.status(500).json({
-        error: "Error al actualizar usuario.",
+        error:
+          "Error al actualizar usuario.",
       });
     }
   },
 
-  delete: async (
+  eliminar: async (
     req: Request,
     res: Response
   ): Promise<void> => {
@@ -707,27 +1144,35 @@ export const userController = {
 
       const id = String(req.params.id);
 
-      if (id === req.user.userId) {
+      if (id === req.user.usuarioId) {
         res.status(400).json({
-          error: "No puedes eliminar tu propia cuenta.",
+          error:
+            "No puedes eliminar tu propia cuenta.",
         });
         return;
       }
 
-      const target = await prisma.user.findUnique({
-        where: {
-          id,
-        },
-      });
+      const objetivo =
+        await prisma.usuario.findUnique({
+          where: {
+            id,
+          },
+        });
 
-      if (!target) {
+      if (!objetivo) {
         res.status(404).json({
-          error: "Usuario no encontrado.",
+          error:
+            "Usuario no encontrado.",
         });
         return;
       }
 
-      if (!canManageUser(req.user, target)) {
+      if (
+        !puedeGestionarUsuario(
+          req.user,
+          objetivo
+        )
+      ) {
         res.status(403).json({
           error:
             "No tienes permiso para eliminar este usuario.",
@@ -735,15 +1180,22 @@ export const userController = {
         return;
       }
 
-      if (target.role === Role.SUPERADMIN) {
-        const superadminCount = await prisma.user.count({
-          where: {
-            role: Role.SUPERADMIN,
-            isActive: true,
-          },
-        });
+      if (
+        objetivo.rol ===
+        RolUsuario.SUPERADMIN
+      ) {
+        const cantidadSuperadmin =
+          await prisma.usuario.count({
+            where: {
+              rol:
+                RolUsuario.SUPERADMIN,
+              activo: true,
+            },
+          });
 
-        if (superadminCount <= 1) {
+        if (
+          cantidadSuperadmin <= 1
+        ) {
           res.status(400).json({
             error:
               "No puedes eliminar el último SUPERADMIN activo.",
@@ -752,21 +1204,40 @@ export const userController = {
         }
       }
 
-      await prisma.user.delete({
+      await prisma.usuario.delete({
         where: {
           id,
         },
       });
 
       res.json({
-        message: "Usuario eliminado correctamente.",
+        mensaje:
+          "Usuario eliminado correctamente.",
+        message:
+          "Usuario eliminado correctamente.",
       });
     } catch (error) {
-      console.error("[USER-DELETE]", error);
+      console.error(
+        "[USUARIO-ELIMINAR]",
+        error
+      );
 
       res.status(500).json({
-        error: "Error al eliminar usuario.",
+        error:
+          "Error al eliminar usuario.",
       });
     }
   },
+};
+
+// Alias temporal: mantiene funcionando las rutas actuales.
+export const userController = {
+  getAll:
+    controladorUsuario.obtenerTodos,
+  getById:
+    controladorUsuario.obtenerPorId,
+  create: controladorUsuario.crear,
+  update:
+    controladorUsuario.actualizar,
+  delete: controladorUsuario.eliminar,
 };

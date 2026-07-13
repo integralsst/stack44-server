@@ -1,45 +1,60 @@
 import { Request, Response } from "express";
 import {
-  IdentificationType,
   Prisma,
-  Role,
+  RolUsuario,
+  TipoIdentificacion,
 } from "@prisma/client";
 
 import { prisma } from "../lib/prisma";
-import { isInternalRole } from "../utils/access";
+import { esRolInterno } from "../utils/access";
 
-class ValidationError extends Error {
+class ErrorValidacion extends Error {
   constructor(message: string) {
     super(message);
-    this.name = "ValidationError";
+    this.name = "ErrorValidacion";
   }
 }
 
-function normalizeString(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
+function normalizarTexto(
+  value: unknown
+): string {
+  return typeof value === "string"
+    ? value.trim()
+    : "";
 }
 
-function nullableString(value: unknown): string | null {
-  const normalizedValue = normalizeString(value);
-  return normalizedValue || null;
+function textoOpcional(
+  value: unknown
+): string | null {
+  const valueNormalizado =
+    normalizarTexto(value);
+
+  return valueNormalizado || null;
 }
 
-function normalizeEmail(value: unknown): string {
-  const email = normalizeString(value).toLowerCase();
+function normalizarCorreo(
+  value: unknown
+): string {
+  const correo =
+    normalizarTexto(value).toLowerCase();
 
   if (
-    email &&
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+    correo &&
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+      correo
+    )
   ) {
-    throw new ValidationError(
+    throw new ErrorValidacion(
       "El correo electrónico no es válido."
     );
   }
 
-  return email;
+  return correo;
 }
 
-function nullableDate(value: unknown): Date | null {
+function fechaOpcional(
+  value: unknown
+): Date | null {
   if (
     value === null ||
     value === undefined ||
@@ -48,213 +63,438 @@ function nullableDate(value: unknown): Date | null {
     return null;
   }
 
-  const date = new Date(String(value));
+  const fecha = new Date(String(value));
 
-  if (Number.isNaN(date.getTime())) {
-    throw new ValidationError("La fecha no es válida.");
+  if (Number.isNaN(fecha.getTime())) {
+    throw new ErrorValidacion(
+      "La fecha no es válida."
+    );
   }
 
-  return date;
+  return fecha;
 }
 
-const professionalSelect = {
-  id: true,
-  identificationType: true,
-  identificationNumber: true,
-  firstNames: true,
-  lastNames: true,
-  position: true,
-  profession: true,
-  professionalRole: true,
-  email: true,
-  phone: true,
-  address: true,
-  isActive: true,
-  userId: true,
-  createdAt: true,
-  updatedAt: true,
-
-  user: {
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      role: true,
-      isActive: true,
-    },
-  },
-
-  companyAssignments: {
-    include: {
-      company: {
-        select: {
-          id: true,
-          name: true,
-          taxId: true,
-          mainCity: true,
-          isActive: true,
-        },
-      },
-    },
-  },
-} satisfies Prisma.ProfessionalSelect;
-
-async function validateUserForProfessional(
-  userId: string,
-  professionalId?: string
-): Promise<{
-  valid: boolean;
-  error?: string;
-}> {
-  const user = await prisma.user.findUnique({
-    where: {
-      id: userId,
-    },
-    include: {
-      professional: {
-        select: {
-          id: true,
-        },
-      },
-    },
-  });
-
-  if (!user) {
-    return {
-      valid: false,
-      error: "El usuario seleccionado no existe.",
-    };
+function obtenerCampo(
+  body: Record<string, unknown>,
+  nombreEspanol: string,
+  nombreAnterior: string
+): unknown {
+  if (
+    Object.prototype.hasOwnProperty.call(
+      body,
+      nombreEspanol
+    )
+  ) {
+    return body[nombreEspanol];
   }
 
-  if (user.role !== Role.PROFESSIONAL) {
+  return body[nombreAnterior];
+}
+
+function convertirTipoIdentificacion(
+  value: unknown
+): TipoIdentificacion | null {
+  if (
+    Object.values(
+      TipoIdentificacion
+    ).includes(
+      value as TipoIdentificacion
+    )
+  ) {
+    return value as TipoIdentificacion;
+  }
+
+  if (value === "PASSPORT") {
+    return TipoIdentificacion.PASAPORTE;
+  }
+
+  if (value === "OTHER") {
+    return TipoIdentificacion.OTRO;
+  }
+
+  return null;
+}
+
+function convertirTipoAnterior(
+  value: TipoIdentificacion
+): string {
+  if (
+    value ===
+    TipoIdentificacion.PASAPORTE
+  ) {
+    return "PASSPORT";
+  }
+
+  if (
+    value === TipoIdentificacion.OTRO
+  ) {
+    return "OTHER";
+  }
+
+  return value;
+}
+
+const seleccionProfesional = {
+  id: true,
+  tipoIdentificacion: true,
+  numeroIdentificacion: true,
+  nombres: true,
+  apellidos: true,
+  cargo: true,
+  profesion: true,
+  rolProfesional: true,
+  correo: true,
+  celular: true,
+  direccion: true,
+  activo: true,
+  usuarioId: true,
+  creadoEn: true,
+  actualizadoEn: true,
+
+  usuario: {
+    select: {
+      id: true,
+      nombre: true,
+      correo: true,
+      rol: true,
+      activo: true,
+    },
+  },
+
+  asignacionesEmpresas: {
+    include: {
+      empresa: {
+        select: {
+          id: true,
+          nombre: true,
+          nit: true,
+          ciudadPrincipal: true,
+          activo: true,
+        },
+      },
+    },
+  },
+} satisfies Prisma.ProfesionalSelect;
+
+function rolAnterior(
+  rol: RolUsuario
+): string {
+  const equivalencias: Record<
+    RolUsuario,
+    string
+  > = {
+    [RolUsuario.USUARIO]: "USER",
+    [RolUsuario.USUARIO_CLIENTE]:
+      "CLIENT_USER",
+    [RolUsuario.ADMIN_CLIENTE]:
+      "CLIENT_ADMIN",
+    [RolUsuario.PROFESIONAL]:
+      "PROFESSIONAL",
+    [RolUsuario.ADMIN]: "ADMIN",
+    [RolUsuario.PROPIETARIO]:
+      "OWNER",
+    [RolUsuario.SUPERADMIN]:
+      "SUPERADMIN",
+  };
+
+  return equivalencias[rol];
+}
+
+function serializarUsuario(
+  usuario:
+    | {
+        id: string;
+        nombre: string;
+        correo: string;
+        rol: RolUsuario;
+        activo: boolean;
+      }
+    | null
+) {
+  if (!usuario) {
+    return null;
+  }
+
+  return {
+    ...usuario,
+    name: usuario.nombre,
+    email: usuario.correo,
+    role: rolAnterior(usuario.rol),
+    isActive: usuario.activo,
+  };
+}
+
+function serializarEmpresa(
+  empresa: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    ...empresa,
+    name: empresa.nombre,
+    taxId: empresa.nit,
+    mainCity: empresa.ciudadPrincipal,
+    isActive: empresa.activo,
+  };
+}
+
+function serializarAsignacion(
+  asignacion: Record<string, unknown>
+): Record<string, unknown> {
+  const empresa =
+    asignacion.empresa &&
+    typeof asignacion.empresa ===
+      "object"
+      ? serializarEmpresa(
+          asignacion.empresa as Record<
+            string,
+            unknown
+          >
+        )
+      : asignacion.empresa;
+
+  return {
+    ...asignacion,
+    companyId: asignacion.empresaId,
+    professionalId:
+      asignacion.profesionalId,
+    assignmentRole:
+      asignacion.rolAsignacion,
+    startDate: asignacion.fechaInicio,
+    endDate: asignacion.fechaFin,
+    isActive: asignacion.activo,
+    createdAt: asignacion.creadoEn,
+    updatedAt: asignacion.actualizadoEn,
+    company: empresa,
+  };
+}
+
+function serializarProfesional(
+  profesional: Prisma.ProfesionalGetPayload<{
+    select: typeof seleccionProfesional;
+  }>
+) {
+  const usuario =
+    serializarUsuario(
+      profesional.usuario
+    );
+
+  const asignaciones =
+    profesional.asignacionesEmpresas.map(
+      (asignacion) =>
+        serializarAsignacion(
+          asignacion as unknown as Record<
+            string,
+            unknown
+          >
+        )
+    );
+
+  return {
+    ...profesional,
+
+    // Relaciones en español.
+    usuario,
+    asignacionesEmpresas:
+      asignaciones,
+
+    // Alias temporales para el frontend anterior.
+    identificationType:
+      convertirTipoAnterior(
+        profesional.tipoIdentificacion
+      ),
+    identificationNumber:
+      profesional.numeroIdentificacion,
+    firstNames: profesional.nombres,
+    lastNames: profesional.apellidos,
+    position: profesional.cargo,
+    profession: profesional.profesion,
+    professionalRole:
+      profesional.rolProfesional,
+    email: profesional.correo,
+    phone: profesional.celular,
+    address: profesional.direccion,
+    isActive: profesional.activo,
+    userId: profesional.usuarioId,
+    createdAt: profesional.creadoEn,
+    updatedAt:
+      profesional.actualizadoEn,
+    user: usuario,
+    companyAssignments:
+      asignaciones,
+  };
+}
+
+async function validarUsuarioProfesional(
+  usuarioId: string,
+  profesionalId?: string
+): Promise<{
+  valido: boolean;
+  error?: string;
+}> {
+  const usuario =
+    await prisma.usuario.findUnique({
+      where: {
+        id: usuarioId,
+      },
+      include: {
+        profesional: {
+          select: {
+            id: true,
+          },
+        },
+      },
+    });
+
+  if (!usuario) {
     return {
-      valid: false,
+      valido: false,
       error:
-        "El usuario seleccionado debe tener rol PROFESSIONAL.",
+        "El usuario seleccionado no existe.",
     };
   }
 
   if (
-    user.professional &&
-    user.professional.id !== professionalId
+    usuario.rol !==
+    RolUsuario.PROFESIONAL
   ) {
     return {
-      valid: false,
+      valido: false,
+      error:
+        "El usuario seleccionado debe tener rol PROFESIONAL.",
+    };
+  }
+
+  if (
+    usuario.profesional &&
+    usuario.profesional.id !==
+      profesionalId
+  ) {
+    return {
+      valido: false,
       error:
         "El usuario ya está relacionado con otro profesional.",
     };
   }
 
   return {
-    valid: true,
+    valido: true,
   };
 }
 
-export const professionalController = {
-  // ====================================================
-  // OBTENER TODOS LOS PROFESIONALES
-  // ====================================================
-
-  getAll: async (
+export const controladorProfesional = {
+  obtenerTodos: async (
     req: Request,
     res: Response
   ): Promise<void> => {
     try {
-      const search = normalizeString(req.query.search);
-      const companyId = normalizeString(
-        req.query.companyId
+      const busqueda = normalizarTexto(
+        req.query.busqueda ??
+          req.query.search
       );
 
-      const includeInactive =
-        req.query.includeInactive === "true";
+      const empresaId = normalizarTexto(
+        req.query.empresaId ??
+          req.query.companyId
+      );
 
-      const where: Prisma.ProfessionalWhereInput = {};
+      const incluirInactivos =
+        req.query.incluirInactivos ===
+          "true" ||
+        req.query.includeInactive ===
+          "true";
 
-      if (!includeInactive) {
-        where.isActive = true;
+      const where:
+        Prisma.ProfesionalWhereInput =
+          {};
+
+      if (!incluirInactivos) {
+        where.activo = true;
       }
 
-      if (companyId) {
-        where.companyAssignments = {
+      if (empresaId) {
+        where.asignacionesEmpresas = {
           some: {
-            companyId,
-            isActive: true,
+            empresaId,
+            activo: true,
           },
         };
       }
 
-      if (search) {
+      if (busqueda) {
         where.OR = [
           {
-            firstNames: {
-              contains: search,
+            nombres: {
+              contains: busqueda,
             },
           },
           {
-            lastNames: {
-              contains: search,
+            apellidos: {
+              contains: busqueda,
             },
           },
           {
-            identificationNumber: {
-              contains: search,
+            numeroIdentificacion: {
+              contains: busqueda,
             },
           },
           {
-            email: {
-              contains: search,
+            correo: {
+              contains: busqueda,
             },
           },
           {
-            profession: {
-              contains: search,
+            profesion: {
+              contains: busqueda,
             },
           },
           {
-            professionalRole: {
-              contains: search,
+            rolProfesional: {
+              contains: busqueda,
             },
           },
         ];
       }
 
-      const professionals =
-        await prisma.professional.findMany({
-          where,
-          select: professionalSelect,
-          orderBy: [
-            {
-              lastNames: "asc",
-            },
-            {
-              firstNames: "asc",
-            },
-          ],
-        });
+      const profesionales =
+        await prisma.profesional.findMany(
+          {
+            where,
+            select:
+              seleccionProfesional,
+            orderBy: [
+              {
+                apellidos: "asc",
+              },
+              {
+                nombres: "asc",
+              },
+            ],
+          }
+        );
 
-      res.json(professionals);
+      res.json(
+        profesionales.map(
+          serializarProfesional
+        )
+      );
     } catch (error) {
       console.error(
-        "[PROFESSIONAL-GET-ALL]",
+        "[PROFESIONAL-OBTENER-TODOS]",
         error
       );
 
       res.status(500).json({
-        error: "Error al obtener profesionales.",
+        error:
+          "Error al obtener profesionales.",
       });
     }
   },
 
-  // ====================================================
-  // OBTENER PERFIL DEL PROFESIONAL AUTENTICADO
-  // ====================================================
-
-  getMe: async (
+  obtenerMiPerfil: async (
     req: Request,
     res: Response
   ): Promise<void> => {
     try {
-      if (!req.user?.professionalId) {
+      if (!req.user?.profesionalId) {
         res.status(404).json({
           error:
             "El usuario no tiene un perfil profesional relacionado.",
@@ -262,24 +502,35 @@ export const professionalController = {
         return;
       }
 
-      const professional =
-        await prisma.professional.findUnique({
-          where: {
-            id: req.user.professionalId,
-          },
-          select: professionalSelect,
-        });
+      const profesional =
+        await prisma.profesional.findUnique(
+          {
+            where: {
+              id: req.user.profesionalId,
+            },
+            select:
+              seleccionProfesional,
+          }
+        );
 
-      if (!professional) {
+      if (!profesional) {
         res.status(404).json({
-          error: "Perfil profesional no encontrado.",
+          error:
+            "Perfil profesional no encontrado.",
         });
         return;
       }
 
-      res.json(professional);
+      res.json(
+        serializarProfesional(
+          profesional
+        )
+      );
     } catch (error) {
-      console.error("[PROFESSIONAL-ME]", error);
+      console.error(
+        "[PROFESIONAL-MI-PERFIL]",
+        error
+      );
 
       res.status(500).json({
         error:
@@ -288,11 +539,7 @@ export const professionalController = {
     }
   },
 
-  // ====================================================
-  // OBTENER PROFESIONAL POR ID
-  // ====================================================
-
-  getById: async (
+  obtenerPorId: async (
     req: Request,
     res: Response
   ): Promise<void> => {
@@ -306,11 +553,11 @@ export const professionalController = {
 
       const id = String(req.params.id);
 
-      const hasAccess =
-        isInternalRole(req.user.role) ||
-        req.user.professionalId === id;
+      const tieneAcceso =
+        esRolInterno(req.user.rol) ||
+        req.user.profesionalId === id;
 
-      if (!hasAccess) {
+      if (!tieneAcceso) {
         res.status(403).json({
           error:
             "No tienes acceso a este perfil profesional.",
@@ -318,155 +565,219 @@ export const professionalController = {
         return;
       }
 
-      const professional =
-        await prisma.professional.findUnique({
-          where: {
-            id,
-          },
-          select: professionalSelect,
-        });
+      const profesional =
+        await prisma.profesional.findUnique(
+          {
+            where: {
+              id,
+            },
+            select:
+              seleccionProfesional,
+          }
+        );
 
-      if (!professional) {
+      if (!profesional) {
         res.status(404).json({
-          error: "Profesional no encontrado.",
+          error:
+            "Profesional no encontrado.",
         });
         return;
       }
 
-      res.json(professional);
+      res.json(
+        serializarProfesional(
+          profesional
+        )
+      );
     } catch (error) {
       console.error(
-        "[PROFESSIONAL-GET-BY-ID]",
+        "[PROFESIONAL-OBTENER-POR-ID]",
         error
       );
 
       res.status(500).json({
-        error: "Error al obtener el profesional.",
+        error:
+          "Error al obtener el profesional.",
       });
     }
   },
 
-  // ====================================================
-  // CREAR PROFESIONAL
-  // ====================================================
-
-  create: async (
+  crear: async (
     req: Request,
     res: Response
   ): Promise<void> => {
     try {
-      const identificationType =
-        req.body
-          .identificationType as IdentificationType;
+      const tipoIdentificacion =
+        convertirTipoIdentificacion(
+          obtenerCampo(
+            req.body,
+            "tipoIdentificacion",
+            "identificationType"
+          )
+        );
 
-      const identificationNumber = normalizeString(
-        req.body.identificationNumber
-      );
+      const numeroIdentificacion =
+        normalizarTexto(
+          obtenerCampo(
+            req.body,
+            "numeroIdentificacion",
+            "identificationNumber"
+          )
+        );
 
-      const firstNames = normalizeString(
-        req.body.firstNames
-      );
-
-      const lastNames = normalizeString(
-        req.body.lastNames
-      );
-
-      const email = normalizeEmail(req.body.email);
-
-      const userId =
-        normalizeString(req.body.userId) || null;
-
-      if (
-        !Object.values(IdentificationType).includes(
-          identificationType
+      const nombres = normalizarTexto(
+        obtenerCampo(
+          req.body,
+          "nombres",
+          "firstNames"
         )
-      ) {
-        throw new ValidationError(
+      );
+
+      const apellidos =
+        normalizarTexto(
+          obtenerCampo(
+            req.body,
+            "apellidos",
+            "lastNames"
+          )
+        );
+
+      const correo = normalizarCorreo(
+        obtenerCampo(
+          req.body,
+          "correo",
+          "email"
+        )
+      );
+
+      const usuarioId =
+        normalizarTexto(
+          obtenerCampo(
+            req.body,
+            "usuarioId",
+            "userId"
+          )
+        ) || null;
+
+      if (!tipoIdentificacion) {
+        throw new ErrorValidacion(
           "El tipo de identificación no es válido."
         );
       }
 
-      if (!identificationNumber) {
-        throw new ValidationError(
+      if (!numeroIdentificacion) {
+        throw new ErrorValidacion(
           "El número de identificación es obligatorio."
         );
       }
 
-      if (!firstNames) {
-        throw new ValidationError(
+      if (!nombres) {
+        throw new ErrorValidacion(
           "Los nombres son obligatorios."
         );
       }
 
-      if (!lastNames) {
-        throw new ValidationError(
+      if (!apellidos) {
+        throw new ErrorValidacion(
           "Los apellidos son obligatorios."
         );
       }
 
-      if (!email) {
-        throw new ValidationError(
+      if (!correo) {
+        throw new ErrorValidacion(
           "El correo electrónico es obligatorio."
         );
       }
 
-      if (userId) {
-        const validation =
-          await validateUserForProfessional(userId);
+      if (usuarioId) {
+        const validacion =
+          await validarUsuarioProfesional(
+            usuarioId
+          );
 
-        if (!validation.valid) {
-          throw new ValidationError(
-            validation.error ?? "Usuario no válido."
+        if (!validacion.valido) {
+          throw new ErrorValidacion(
+            validacion.error ??
+              "Usuario no válido."
           );
         }
       }
 
-      const professional =
-        await prisma.professional.create({
+      const activoSolicitado =
+        obtenerCampo(
+          req.body,
+          "activo",
+          "isActive"
+        );
+
+      const profesional =
+        await prisma.profesional.create({
           data: {
-            identificationType,
-            identificationNumber,
-            firstNames,
-            lastNames,
-
-            position: nullableString(
-              req.body.position
+            tipoIdentificacion,
+            numeroIdentificacion,
+            nombres,
+            apellidos,
+            cargo: textoOpcional(
+              obtenerCampo(
+                req.body,
+                "cargo",
+                "position"
+              )
             ),
-
-            profession: nullableString(
-              req.body.profession
+            profesion: textoOpcional(
+              obtenerCampo(
+                req.body,
+                "profesion",
+                "profession"
+              )
             ),
-
-            professionalRole: nullableString(
-              req.body.professionalRole
+            rolProfesional: textoOpcional(
+              obtenerCampo(
+                req.body,
+                "rolProfesional",
+                "professionalRole"
+              )
             ),
-
-            email,
-
-            phone: nullableString(req.body.phone),
-
-            address: nullableString(
-              req.body.address
+            correo,
+            celular: textoOpcional(
+              obtenerCampo(
+                req.body,
+                "celular",
+                "phone"
+              )
             ),
-
-            userId,
-
-            isActive:
-              typeof req.body.isActive === "boolean"
-                ? req.body.isActive
+            direccion: textoOpcional(
+              obtenerCampo(
+                req.body,
+                "direccion",
+                "address"
+              )
+            ),
+            usuarioId,
+            activo:
+              typeof activoSolicitado ===
+              "boolean"
+                ? activoSolicitado
                 : true,
           },
-          select: professionalSelect,
+          select:
+            seleccionProfesional,
         });
 
-      res.status(201).json(professional);
+      res
+        .status(201)
+        .json(
+          serializarProfesional(
+            profesional
+          )
+        );
     } catch (error) {
       console.error(
-        "[PROFESSIONAL-CREATE]",
+        "[PROFESIONAL-CREAR]",
         error
       );
 
-      if (error instanceof ValidationError) {
+      if (error instanceof ErrorValidacion) {
         res.status(400).json({
           error: error.message,
         });
@@ -486,16 +797,13 @@ export const professionalController = {
       }
 
       res.status(500).json({
-        error: "Error al crear el profesional.",
+        error:
+          "Error al crear el profesional.",
       });
     }
   },
 
-  // ====================================================
-  // ACTUALIZAR PROFESIONAL
-  // ====================================================
-
-  update: async (
+  actualizar: async (
     req: Request,
     res: Response
   ): Promise<void> => {
@@ -509,32 +817,37 @@ export const professionalController = {
 
       const id = String(req.params.id);
 
-      const current =
-        await prisma.professional.findUnique({
-          where: {
-            id,
-          },
-          select: {
-            id: true,
-            userId: true,
-          },
-        });
+      const actual =
+        await prisma.profesional.findUnique(
+          {
+            where: {
+              id,
+            },
+            select: {
+              id: true,
+              usuarioId: true,
+            },
+          }
+        );
 
-      if (!current) {
+      if (!actual) {
         res.status(404).json({
-          error: "Profesional no encontrado.",
+          error:
+            "Profesional no encontrado.",
         });
         return;
       }
 
-      const isInternal = isInternalRole(
-        req.user.role
-      );
+      const esInterno =
+        esRolInterno(req.user.rol);
 
-      const isOwnProfile =
-        req.user.professionalId === id;
+      const esPerfilPropio =
+        req.user.profesionalId === id;
 
-      if (!isInternal && !isOwnProfile) {
+      if (
+        !esInterno &&
+        !esPerfilPropio
+      ) {
         res.status(403).json({
           error:
             "No tienes permiso para editar este profesional.",
@@ -542,175 +855,276 @@ export const professionalController = {
         return;
       }
 
-      const data: Prisma.ProfessionalUncheckedUpdateInput =
-        {};
+      const data:
+        Prisma.ProfesionalUncheckedUpdateInput =
+          {};
 
-      // Nombres: campo obligatorio, nunca puede recibir null.
-      if (req.body.firstNames !== undefined) {
-        const firstNames = normalizeString(
-          req.body.firstNames
+      const nombresSolicitados =
+        obtenerCampo(
+          req.body,
+          "nombres",
+          "firstNames"
         );
 
-        if (!firstNames) {
-          throw new ValidationError(
+      if (
+        nombresSolicitados !== undefined
+      ) {
+        const nombres =
+          normalizarTexto(
+            nombresSolicitados
+          );
+
+        if (!nombres) {
+          throw new ErrorValidacion(
             "Los nombres no pueden estar vacíos."
           );
         }
 
-        data.firstNames = firstNames;
+        data.nombres = nombres;
       }
 
-      // Apellidos: campo obligatorio, nunca puede recibir null.
-      if (req.body.lastNames !== undefined) {
-        const lastNames = normalizeString(
-          req.body.lastNames
+      const apellidosSolicitados =
+        obtenerCampo(
+          req.body,
+          "apellidos",
+          "lastNames"
         );
 
-        if (!lastNames) {
-          throw new ValidationError(
+      if (
+        apellidosSolicitados !== undefined
+      ) {
+        const apellidos =
+          normalizarTexto(
+            apellidosSolicitados
+          );
+
+        if (!apellidos) {
+          throw new ErrorValidacion(
             "Los apellidos no pueden estar vacíos."
           );
         }
 
-        data.lastNames = lastNames;
+        data.apellidos = apellidos;
       }
 
-      // Celular: campo opcional, puede ser string o null.
-      if (req.body.phone !== undefined) {
-        data.phone = nullableString(req.body.phone);
-      }
-
-      // Dirección: campo opcional, puede ser string o null.
-      if (req.body.address !== undefined) {
-        data.address = nullableString(
-          req.body.address
+      const celularSolicitado =
+        obtenerCampo(
+          req.body,
+          "celular",
+          "phone"
         );
+      if (
+        celularSolicitado !== undefined
+      ) {
+        data.celular =
+          textoOpcional(
+            celularSolicitado
+          );
       }
 
-      // Correo: campo obligatorio.
-      if (req.body.email !== undefined) {
-        const email = normalizeEmail(
-          req.body.email
+      const direccionSolicitada =
+        obtenerCampo(
+          req.body,
+          "direccion",
+          "address"
         );
+      if (
+        direccionSolicitada !== undefined
+      ) {
+        data.direccion =
+          textoOpcional(
+            direccionSolicitada
+          );
+      }
 
-        if (!email) {
-          throw new ValidationError(
+      const correoSolicitado =
+        obtenerCampo(
+          req.body,
+          "correo",
+          "email"
+        );
+      if (
+        correoSolicitado !== undefined
+      ) {
+        const correo =
+          normalizarCorreo(
+            correoSolicitado
+          );
+
+        if (!correo) {
+          throw new ErrorValidacion(
             "El correo no puede estar vacío."
           );
         }
 
-        data.email = email;
+        data.correo = correo;
       }
 
-      // Estos campos solo pueden ser modificados
-      // por administradores internos.
-      if (isInternal) {
-        if (
-          req.body.identificationType !== undefined
-        ) {
-          const identificationType =
-            req.body
-              .identificationType as IdentificationType;
+      if (esInterno) {
+        const tipoSolicitado =
+          obtenerCampo(
+            req.body,
+            "tipoIdentificacion",
+            "identificationType"
+          );
 
-          if (
-            !Object.values(
-              IdentificationType
-            ).includes(identificationType)
-          ) {
-            throw new ValidationError(
+        if (tipoSolicitado !== undefined) {
+          const tipo =
+            convertirTipoIdentificacion(
+              tipoSolicitado
+            );
+
+          if (!tipo) {
+            throw new ErrorValidacion(
               "Tipo de identificación inválido."
             );
           }
 
-          data.identificationType =
-            identificationType;
+          data.tipoIdentificacion = tipo;
         }
 
+        const numeroSolicitado =
+          obtenerCampo(
+            req.body,
+            "numeroIdentificacion",
+            "identificationNumber"
+          );
+
         if (
-          req.body.identificationNumber !== undefined
+          numeroSolicitado !== undefined
         ) {
-          const identificationNumber =
-            normalizeString(
-              req.body.identificationNumber
+          const numero =
+            normalizarTexto(
+              numeroSolicitado
             );
 
-          if (!identificationNumber) {
-            throw new ValidationError(
+          if (!numero) {
+            throw new ErrorValidacion(
               "El número de identificación no puede estar vacío."
             );
           }
 
-          data.identificationNumber =
-            identificationNumber;
+          data.numeroIdentificacion =
+            numero;
         }
 
-        if (req.body.position !== undefined) {
-          data.position = nullableString(
-            req.body.position
+        const cargoSolicitado =
+          obtenerCampo(
+            req.body,
+            "cargo",
+            "position"
           );
+        if (
+          cargoSolicitado !== undefined
+        ) {
+          data.cargo =
+            textoOpcional(
+              cargoSolicitado
+            );
         }
 
-        if (req.body.profession !== undefined) {
-          data.profession = nullableString(
-            req.body.profession
+        const profesionSolicitada =
+          obtenerCampo(
+            req.body,
+            "profesion",
+            "profession"
           );
+        if (
+          profesionSolicitada !==
+          undefined
+        ) {
+          data.profesion =
+            textoOpcional(
+              profesionSolicitada
+            );
         }
+
+        const rolSolicitado =
+          obtenerCampo(
+            req.body,
+            "rolProfesional",
+            "professionalRole"
+          );
+        if (
+          rolSolicitado !== undefined
+        ) {
+          data.rolProfesional =
+            textoOpcional(
+              rolSolicitado
+            );
+        }
+
+        const activoSolicitado =
+          obtenerCampo(
+            req.body,
+            "activo",
+            "isActive"
+          );
 
         if (
-          req.body.professionalRole !== undefined
+          typeof activoSolicitado ===
+          "boolean"
         ) {
-          data.professionalRole = nullableString(
-            req.body.professionalRole
-          );
+          data.activo =
+            activoSolicitado;
         }
+
+        const usuarioSolicitado =
+          obtenerCampo(
+            req.body,
+            "usuarioId",
+            "userId"
+          );
 
         if (
-          typeof req.body.isActive === "boolean"
+          usuarioSolicitado !== undefined
         ) {
-          data.isActive = req.body.isActive;
-        }
+          const usuarioId =
+            normalizarTexto(
+              usuarioSolicitado
+            ) || null;
 
-        if (req.body.userId !== undefined) {
-          const userId =
-            normalizeString(req.body.userId) ||
-            null;
-
-          if (userId) {
-            const validation =
-              await validateUserForProfessional(
-                userId,
+          if (usuarioId) {
+            const validacion =
+              await validarUsuarioProfesional(
+                usuarioId,
                 id
               );
 
-            if (!validation.valid) {
-              throw new ValidationError(
-                validation.error ??
+            if (!validacion.valido) {
+              throw new ErrorValidacion(
+                validacion.error ??
                   "Usuario no válido."
               );
             }
           }
 
-          data.userId = userId;
+          data.usuarioId = usuarioId;
         }
       }
 
-      const professional =
-        await prisma.professional.update({
+      const profesional =
+        await prisma.profesional.update({
           where: {
             id,
           },
           data,
-          select: professionalSelect,
+          select:
+            seleccionProfesional,
         });
 
-      res.json(professional);
+      res.json(
+        serializarProfesional(
+          profesional
+        )
+      );
     } catch (error) {
       console.error(
-        "[PROFESSIONAL-UPDATE]",
+        "[PROFESIONAL-ACTUALIZAR]",
         error
       );
 
-      if (error instanceof ValidationError) {
+      if (error instanceof ErrorValidacion) {
         res.status(400).json({
           error: error.message,
         });
@@ -719,7 +1133,7 @@ export const professionalController = {
 
       if (
         error instanceof
-          Prisma.PrismaClientKnownRequestError
+        Prisma.PrismaClientKnownRequestError
       ) {
         if (error.code === "P2002") {
           res.status(409).json({
@@ -731,7 +1145,8 @@ export const professionalController = {
 
         if (error.code === "P2025") {
           res.status(404).json({
-            error: "Profesional no encontrado.",
+            error:
+              "Profesional no encontrado.",
           });
           return;
         }
@@ -744,36 +1159,41 @@ export const professionalController = {
     }
   },
 
-  // ====================================================
-  // DESACTIVAR PROFESIONAL
-  // ====================================================
-
-  delete: async (
+  eliminar: async (
     req: Request,
     res: Response
   ): Promise<void> => {
     try {
       const id = String(req.params.id);
 
-      const professional =
-        await prisma.professional.update({
+      const profesional =
+        await prisma.profesional.update({
           where: {
             id,
           },
           data: {
-            isActive: false,
+            activo: false,
           },
-          select: professionalSelect,
+          select:
+            seleccionProfesional,
         });
 
+      const respuesta =
+        serializarProfesional(
+          profesional
+        );
+
       res.json({
+        mensaje:
+          "Profesional desactivado correctamente.",
         message:
           "Profesional desactivado correctamente.",
-        professional,
+        profesional: respuesta,
+        professional: respuesta,
       });
     } catch (error) {
       console.error(
-        "[PROFESSIONAL-DELETE]",
+        "[PROFESIONAL-ELIMINAR]",
         error
       );
 
@@ -783,7 +1203,8 @@ export const professionalController = {
         error.code === "P2025"
       ) {
         res.status(404).json({
-          error: "Profesional no encontrado.",
+          error:
+            "Profesional no encontrado.",
         });
         return;
       }
@@ -795,45 +1216,46 @@ export const professionalController = {
     }
   },
 
-  // ====================================================
-  // ASIGNAR EMPRESA AL PROFESIONAL
-  // ====================================================
-
-  assignCompany: async (
+  asignarEmpresa: async (
     req: Request,
     res: Response
   ): Promise<void> => {
     try {
-      const professionalId = String(
+      const profesionalId = String(
         req.params.id
       );
 
-      const companyId = normalizeString(
-        req.body.companyId
-      );
+      const empresaId =
+        normalizarTexto(
+          obtenerCampo(
+            req.body,
+            "empresaId",
+            "companyId"
+          )
+        );
 
-      if (!companyId) {
-        throw new ValidationError(
+      if (!empresaId) {
+        throw new ErrorValidacion(
           "Debes seleccionar una empresa."
         );
       }
 
-      const [professional, company] =
+      const [profesional, empresa] =
         await Promise.all([
-          prisma.professional.findFirst({
+          prisma.profesional.findFirst({
             where: {
-              id: professionalId,
-              isActive: true,
+              id: profesionalId,
+              activo: true,
             },
             select: {
               id: true,
             },
           }),
 
-          prisma.company.findFirst({
+          prisma.empresa.findFirst({
             where: {
-              id: companyId,
-              isActive: true,
+              id: empresaId,
+              activo: true,
             },
             select: {
               id: true,
@@ -841,79 +1263,103 @@ export const professionalController = {
           }),
         ]);
 
-      if (!professional) {
-        throw new ValidationError(
+      if (!profesional) {
+        throw new ErrorValidacion(
           "El profesional no existe o está inactivo."
         );
       }
 
-      if (!company) {
-        throw new ValidationError(
+      if (!empresa) {
+        throw new ErrorValidacion(
           "La empresa no existe o está inactiva."
         );
       }
 
-      const startDate = nullableDate(
-        req.body.startDate
+      const fechaInicio = fechaOpcional(
+        obtenerCampo(
+          req.body,
+          "fechaInicio",
+          "startDate"
+        )
       );
 
-      const endDate = nullableDate(
-        req.body.endDate
+      const fechaFin = fechaOpcional(
+        obtenerCampo(
+          req.body,
+          "fechaFin",
+          "endDate"
+        )
       );
 
       if (
-        startDate &&
-        endDate &&
-        endDate < startDate
+        fechaInicio &&
+        fechaFin &&
+        fechaFin < fechaInicio
       ) {
-        throw new ValidationError(
+        throw new ErrorValidacion(
           "La fecha final no puede ser anterior a la fecha inicial."
         );
       }
 
-      const assignment =
-        await prisma.companyProfessional.upsert({
-          where: {
-            companyId_professionalId: {
-              companyId,
-              professionalId,
+      const rolAsignacion =
+        textoOpcional(
+          obtenerCampo(
+            req.body,
+            "rolAsignacion",
+            "assignmentRole"
+          )
+        );
+
+      const asignacion =
+        await prisma.empresaProfesional.upsert(
+          {
+            where: {
+              empresaId_profesionalId: {
+                empresaId,
+                profesionalId,
+              },
             },
-          },
 
-          update: {
-            assignmentRole: nullableString(
-              req.body.assignmentRole
-            ),
-            startDate,
-            endDate,
-            isActive: true,
-          },
+            update: {
+              rolAsignacion,
+              fechaInicio,
+              fechaFin,
+              activo: true,
+            },
 
-          create: {
-            companyId,
-            professionalId,
-            assignmentRole: nullableString(
-              req.body.assignmentRole
-            ),
-            startDate,
-            endDate,
-            isActive: true,
-          },
+            create: {
+              empresaId,
+              profesionalId,
+              rolAsignacion,
+              fechaInicio,
+              fechaFin,
+              activo: true,
+            },
 
-          include: {
-            company: true,
-            professional: true,
-          },
-        });
+            include: {
+              empresa: true,
+              profesional: true,
+            },
+          }
+        );
 
-      res.status(201).json(assignment);
+      res
+        .status(201)
+        .json(
+          serializarAsignacion(
+            asignacion as unknown as Record<
+              string,
+              unknown
+            >
+          )
+        );
     } catch (error) {
       console.error(
-        "[PROFESSIONAL-ASSIGN-COMPANY]",
+        "[PROFESIONAL-ASIGNAR-EMPRESA]",
         error
       );
 
-      if (error instanceof ValidationError) {
+      if (error instanceof ErrorValidacion) {
         res.status(400).json({
           error: error.message,
         });
@@ -927,46 +1373,56 @@ export const professionalController = {
     }
   },
 
-  // ====================================================
-  // DESACTIVAR ASIGNACIÓN CON EMPRESA
-  // ====================================================
-
-  removeCompanyAssignment: async (
+  retirarEmpresa: async (
     req: Request,
     res: Response
   ): Promise<void> => {
     try {
-      const professionalId = String(
+      const profesionalId = String(
         req.params.id
       );
 
-      const companyId = String(
-        req.params.companyId
+      const empresaId = String(
+        req.params.empresaId ??
+          req.params.companyId
       );
 
-      const assignment =
-        await prisma.companyProfessional.update({
-          where: {
-            companyId_professionalId: {
-              companyId,
-              professionalId,
+      const asignacion =
+        await prisma.empresaProfesional.update(
+          {
+            where: {
+              empresaId_profesionalId: {
+                empresaId,
+                profesionalId,
+              },
             },
-          },
 
-          data: {
-            isActive: false,
-            endDate: new Date(),
-          },
-        });
+            data: {
+              activo: false,
+              fechaFin: new Date(),
+            },
+          }
+        );
+
+      const respuesta =
+        serializarAsignacion(
+          asignacion as unknown as Record<
+            string,
+            unknown
+          >
+        );
 
       res.json({
+        mensaje:
+          "Asignación desactivada correctamente.",
         message:
           "Asignación desactivada correctamente.",
-        assignment,
+        asignacion: respuesta,
+        assignment: respuesta,
       });
     } catch (error) {
       console.error(
-        "[PROFESSIONAL-REMOVE-COMPANY]",
+        "[PROFESIONAL-RETIRAR-EMPRESA]",
         error
       );
 
@@ -976,7 +1432,8 @@ export const professionalController = {
         error.code === "P2025"
       ) {
         res.status(404).json({
-          error: "Asignación no encontrada.",
+          error:
+            "Asignación no encontrada.",
         });
         return;
       }
@@ -987,4 +1444,24 @@ export const professionalController = {
       });
     }
   },
+};
+
+// Alias temporal: mantiene funcionando las rutas actuales.
+export const professionalController = {
+  getAll:
+    controladorProfesional.obtenerTodos,
+  getMe:
+    controladorProfesional.obtenerMiPerfil,
+  getById:
+    controladorProfesional.obtenerPorId,
+  create:
+    controladorProfesional.crear,
+  update:
+    controladorProfesional.actualizar,
+  delete:
+    controladorProfesional.eliminar,
+  assignCompany:
+    controladorProfesional.asignarEmpresa,
+  removeCompanyAssignment:
+    controladorProfesional.retirarEmpresa,
 };

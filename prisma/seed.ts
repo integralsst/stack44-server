@@ -1,79 +1,103 @@
+import "dotenv/config";
+
 import {
   PrismaClient,
-  Role,
+  RolUsuario,
 } from "@prisma/client";
 
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
-const SUPERADMIN_EMAIL =
+const CORREO_SUPERADMIN =
   "superadmin@stack4four.com";
 
-const SUPERADMIN_PASSWORD =
+const CONTRASENA_SUPERADMIN =
   "Stack44Admin2026!";
+
+const NOMBRE_SUPERADMIN =
+  "Superadministrador Stack44";
 
 async function main(): Promise<void> {
   console.log(
     "🌱 Iniciando la creación de datos iniciales..."
   );
 
-  const hashedPassword = await bcrypt.hash(
-    SUPERADMIN_PASSWORD,
-    12
-  );
+  const contrasenaEncriptada =
+    await bcrypt.hash(
+      CONTRASENA_SUPERADMIN,
+      12
+    );
 
-  const superadmin = await prisma.user.upsert({
-    where: {
-      email: SUPERADMIN_EMAIL,
-    },
+  const superadministrador =
+    await prisma.usuario.upsert({
+      where: {
+        correo: CORREO_SUPERADMIN,
+      },
 
-    update: {
-      name: "Superadministrador Stack44",
-      password: hashedPassword,
-      role: Role.SUPERADMIN,
-      companyId: null,
-      isActive: true,
-    },
+      update: {
+        nombre: NOMBRE_SUPERADMIN,
+        correo: CORREO_SUPERADMIN,
+        contrasena:
+          contrasenaEncriptada,
+        rol: RolUsuario.SUPERADMIN,
+        empresaId: null,
+        activo: true,
+      },
 
-    create: {
-      name: "Superadministrador Stack44",
-      email: SUPERADMIN_EMAIL,
-      password: hashedPassword,
-      role: Role.SUPERADMIN,
-      companyId: null,
-      isActive: true,
-    },
+      create: {
+        nombre: NOMBRE_SUPERADMIN,
+        correo: CORREO_SUPERADMIN,
+        contrasena:
+          contrasenaEncriptada,
+        rol: RolUsuario.SUPERADMIN,
+        empresaId: null,
+        activo: true,
+      },
 
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      role: true,
-      companyId: true,
-      isActive: true,
-      createdAt: true,
-    },
-  });
+      select: {
+        id: true,
+        nombre: true,
+        correo: true,
+        rol: true,
+        empresaId: true,
+        activo: true,
+        creadoEn: true,
+      },
+    });
 
   console.log("");
-  console.log("✅ Superadministrador creado:");
-  console.log(`   ID: ${superadmin.id}`);
-  console.log(`   Nombre: ${superadmin.name}`);
-  console.log(`   Correo: ${superadmin.email}`);
-  console.log(`   Rol: ${superadmin.role}`);
-  console.log(`   Activo: ${superadmin.isActive}`);
+  console.log(
+    "✅ Superadministrador creado correctamente:"
+  );
+  console.log(
+    `   ID: ${superadministrador.id}`
+  );
+  console.log(
+    `   Nombre: ${superadministrador.nombre}`
+  );
+  console.log(
+    `   Correo: ${superadministrador.correo}`
+  );
+  console.log(
+    `   Rol: ${superadministrador.rol}`
+  );
+  console.log(
+    `   Activo: ${superadministrador.activo}`
+  );
 
   console.log("");
   console.log("🔐 Credenciales de acceso:");
-  console.log(`   Usuario: ${SUPERADMIN_EMAIL}`);
   console.log(
-    `   Contraseña: ${SUPERADMIN_PASSWORD}`
+    `   Usuario: ${CORREO_SUPERADMIN}`
+  );
+  console.log(
+    `   Contraseña: ${CONTRASENA_SUPERADMIN}`
   );
 
   console.log("");
   console.log(
-    "⚠️ Cambia esta contraseña antes de utilizar la aplicación en producción."
+    "⚠️ Cambia esta contraseña antes de usar la aplicación en producción."
   );
 }
 

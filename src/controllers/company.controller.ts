@@ -1,228 +1,565 @@
 import { Request, Response } from "express";
 import {
+  ClaseRiesgo,
   Prisma,
-  RiskClass,
-  Role,
+  RolUsuario,
 } from "@prisma/client";
 
 import { prisma } from "../lib/prisma";
-import { isInternalRole } from "../utils/access";
+import { esRolInterno } from "../utils/access";
 
-class ValidationError extends Error {}
-
-function normalizeString(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
+class ErrorValidacion extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ErrorValidacion";
+  }
 }
 
-function nullableString(value: unknown): string | null {
-  const normalized = normalizeString(value);
-  return normalized || null;
+function tienePropiedad(
+  objeto: Record<string, unknown>,
+  propiedad: string
+): boolean {
+  return Object.prototype.hasOwnProperty.call(
+    objeto,
+    propiedad
+  );
 }
 
-function nullableEmail(value: unknown): string | null {
-  const email = nullableString(value);
+function obtenerCampo(
+  body: Record<string, unknown>,
+  nombreEspanol: string,
+  nombreAnterior: string
+): unknown {
+  if (tienePropiedad(body, nombreEspanol)) {
+    return body[nombreEspanol];
+  }
 
-  if (!email) {
+  if (tienePropiedad(body, nombreAnterior)) {
+    return body[nombreAnterior];
+  }
+
+  return undefined;
+}
+
+function normalizarTexto(value: unknown): string {
+  return typeof value === "string"
+    ? value.trim()
+    : "";
+}
+
+function textoOpcional(
+  value: unknown
+): string | null {
+  const valueNormalizado =
+    normalizarTexto(value);
+
+  return valueNormalizado || null;
+}
+
+function correoOpcional(
+  value: unknown
+): string | null {
+  const correo = textoOpcional(value);
+
+  if (!correo) {
     return null;
   }
-
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw new ValidationError(`Correo inválido: ${email}`);
-  }
-
-  return email.toLowerCase();
-}
-
-function nullableDate(value: unknown): Date | null {
-  if (value === null || value === undefined || value === "") {
-    return null;
-  }
-
-  const date = new Date(String(value));
-
-  if (Number.isNaN(date.getTime())) {
-    throw new ValidationError("La fecha proporcionada no es válida.");
-  }
-
-  return date;
-}
-
-function nonNegativeInteger(
-  value: unknown,
-  fieldName: string
-): number {
-  const numberValue = Number(value);
 
   if (
-    !Number.isInteger(numberValue) ||
-    numberValue < 0
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+      correo
+    )
   ) {
-    throw new ValidationError(
-      `${fieldName} debe ser un número entero mayor o igual a cero.`
+    throw new ErrorValidacion(
+      `Correo inválido: ${correo}`
     );
   }
 
-  return numberValue;
+  return correo.toLowerCase();
 }
 
-function buildCompanyData(
+function fechaOpcional(
+  value: unknown
+): Date | null {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return null;
+  }
+
+  const fecha = new Date(String(value));
+
+  if (Number.isNaN(fecha.getTime())) {
+    throw new ErrorValidacion(
+      "La fecha proporcionada no es válida."
+    );
+  }
+
+  return fecha;
+}
+
+function enteroNoNegativo(
+  value: unknown,
+  nombreCampo: string
+): number {
+  const numero = Number(value);
+
+  if (
+    !Number.isInteger(numero) ||
+    numero < 0
+  ) {
+    throw new ErrorValidacion(
+      `${nombreCampo} debe ser un número entero mayor o igual a cero.`
+    );
+  }
+
+  return numero;
+}
+
+function construirDatosEmpresa(
   body: Record<string, unknown>,
-  partial = false
-): Prisma.CompanyUncheckedUpdateInput {
-  const data: Prisma.CompanyUncheckedUpdateInput = {};
+  parcial = false
+): Prisma.EmpresaUncheckedUpdateInput {
+  const data: Prisma.EmpresaUncheckedUpdateInput =
+    {};
 
-  if (!partial || body.name !== undefined) {
-    const name = normalizeString(body.name);
+  const nombre = obtenerCampo(
+    body,
+    "nombre",
+    "name"
+  );
 
-    if (!name) {
-      throw new ValidationError(
+  if (!parcial || nombre !== undefined) {
+    const valor = normalizarTexto(nombre);
+
+    if (!valor) {
+      throw new ErrorValidacion(
         "La razón social es obligatoria."
       );
     }
 
-    data.name = name;
+    data.nombre = valor;
   }
 
-  if (!partial || body.taxId !== undefined) {
-    const taxId = normalizeString(body.taxId);
+  const nit = obtenerCampo(
+    body,
+    "nit",
+    "taxId"
+  );
 
-    if (!taxId) {
-      throw new ValidationError("El NIT es obligatorio.");
+  if (!parcial || nit !== undefined) {
+    const valor = normalizarTexto(nit);
+
+    if (!valor) {
+      throw new ErrorValidacion(
+        "El NIT es obligatorio."
+      );
     }
 
-    data.taxId = taxId;
+    data.nit = valor;
   }
 
-  const stringFields = [
-    "mainAddress",
-    "mainCity",
-    "economicActivityCode",
-    "economicActivityDescription",
-    "companyDescription",
-    "managerName",
-    "sstContactName",
-  ] as const;
-
-  for (const field of stringFields) {
-    if (body[field] !== undefined) {
-      data[field] = nullableString(body[field]);
-    }
+  const direccionPrincipal = obtenerCampo(
+    body,
+    "direccionPrincipal",
+    "mainAddress"
+  );
+  if (direccionPrincipal !== undefined) {
+    data.direccionPrincipal =
+      textoOpcional(direccionPrincipal);
   }
 
-  const emailFields = [
-    "companyEmail",
-    "managerEmail",
-    "sstContactEmail",
-  ] as const;
-
-  for (const field of emailFields) {
-    if (body[field] !== undefined) {
-      data[field] = nullableEmail(body[field]);
-    }
+  const ciudadPrincipal = obtenerCampo(
+    body,
+    "ciudadPrincipal",
+    "mainCity"
+  );
+  if (ciudadPrincipal !== undefined) {
+    data.ciudadPrincipal =
+      textoOpcional(ciudadPrincipal);
   }
 
-  if (body.startDate !== undefined) {
-    data.startDate = nullableDate(body.startDate);
+  const codigoActividadEconomica =
+    obtenerCampo(
+      body,
+      "codigoActividadEconomica",
+      "economicActivityCode"
+    );
+  if (
+    codigoActividadEconomica !== undefined
+  ) {
+    data.codigoActividadEconomica =
+      textoOpcional(
+        codigoActividadEconomica
+      );
   }
 
-  if (body.mainRiskClass !== undefined) {
+  const descripcionActividadEconomica =
+    obtenerCampo(
+      body,
+      "descripcionActividadEconomica",
+      "economicActivityDescription"
+    );
+  if (
+    descripcionActividadEconomica !==
+    undefined
+  ) {
+    data.descripcionActividadEconomica =
+      textoOpcional(
+        descripcionActividadEconomica
+      );
+  }
+
+  const descripcionEmpresa = obtenerCampo(
+    body,
+    "descripcionEmpresa",
+    "companyDescription"
+  );
+  if (descripcionEmpresa !== undefined) {
+    data.descripcionEmpresa =
+      textoOpcional(descripcionEmpresa);
+  }
+
+  const nombreGerente = obtenerCampo(
+    body,
+    "nombreGerente",
+    "managerName"
+  );
+  if (nombreGerente !== undefined) {
+    data.nombreGerente =
+      textoOpcional(nombreGerente);
+  }
+
+  const nombreContactoSst = obtenerCampo(
+    body,
+    "nombreContactoSst",
+    "sstContactName"
+  );
+  if (nombreContactoSst !== undefined) {
+    data.nombreContactoSst =
+      textoOpcional(nombreContactoSst);
+  }
+
+  const correoEmpresa = obtenerCampo(
+    body,
+    "correoEmpresa",
+    "companyEmail"
+  );
+  if (correoEmpresa !== undefined) {
+    data.correoEmpresa =
+      correoOpcional(correoEmpresa);
+  }
+
+  const correoGerente = obtenerCampo(
+    body,
+    "correoGerente",
+    "managerEmail"
+  );
+  if (correoGerente !== undefined) {
+    data.correoGerente =
+      correoOpcional(correoGerente);
+  }
+
+  const correoContactoSst = obtenerCampo(
+    body,
+    "correoContactoSst",
+    "sstContactEmail"
+  );
+  if (correoContactoSst !== undefined) {
+    data.correoContactoSst =
+      correoOpcional(correoContactoSst);
+  }
+
+  const fechaInicio = obtenerCampo(
+    body,
+    "fechaInicio",
+    "startDate"
+  );
+  if (fechaInicio !== undefined) {
+    data.fechaInicio =
+      fechaOpcional(fechaInicio);
+  }
+
+  const claseRiesgoPrincipal = obtenerCampo(
+    body,
+    "claseRiesgoPrincipal",
+    "mainRiskClass"
+  );
+
+  if (claseRiesgoPrincipal !== undefined) {
     if (
-      body.mainRiskClass === null ||
-      body.mainRiskClass === ""
+      claseRiesgoPrincipal === null ||
+      claseRiesgoPrincipal === ""
     ) {
-      data.mainRiskClass = null;
+      data.claseRiesgoPrincipal = null;
     } else if (
-      Object.values(RiskClass).includes(
-        body.mainRiskClass as RiskClass
+      Object.values(ClaseRiesgo).includes(
+        claseRiesgoPrincipal as ClaseRiesgo
       )
     ) {
-      data.mainRiskClass =
-        body.mainRiskClass as RiskClass;
+      data.claseRiesgoPrincipal =
+        claseRiesgoPrincipal as ClaseRiesgo;
     } else {
-      throw new ValidationError(
+      throw new ErrorValidacion(
         "La clase de riesgo debe ser I, II, III, IV o V."
       );
     }
   }
 
-  if (body.agreedSstVisits !== undefined) {
-    data.agreedSstVisits = nonNegativeInteger(
-      body.agreedSstVisits,
-      "Las visitas SST"
+  const visitasSstConvenidas =
+    obtenerCampo(
+      body,
+      "visitasSstConvenidas",
+      "agreedSstVisits"
     );
+  if (visitasSstConvenidas !== undefined) {
+    data.visitasSstConvenidas =
+      enteroNoNegativo(
+        visitasSstConvenidas,
+        "Las visitas SST"
+      );
   }
 
-  if (body.agreedEmergencyVisits !== undefined) {
-    data.agreedEmergencyVisits = nonNegativeInteger(
-      body.agreedEmergencyVisits,
-      "Las visitas de emergencias"
+  const visitasEmergenciasConvenidas =
+    obtenerCampo(
+      body,
+      "visitasEmergenciasConvenidas",
+      "agreedEmergencyVisits"
     );
+  if (
+    visitasEmergenciasConvenidas !==
+    undefined
+  ) {
+    data.visitasEmergenciasConvenidas =
+      enteroNoNegativo(
+        visitasEmergenciasConvenidas,
+        "Las visitas de emergencias"
+      );
   }
 
-  if (body.isActive !== undefined) {
-    if (typeof body.isActive !== "boolean") {
-      throw new ValidationError(
+  const activo = obtenerCampo(
+    body,
+    "activo",
+    "isActive"
+  );
+  if (activo !== undefined) {
+    if (typeof activo !== "boolean") {
+      throw new ErrorValidacion(
         "El estado de la empresa debe ser verdadero o falso."
       );
     }
 
-    data.isActive = body.isActive;
+    data.activo = activo;
   }
 
   return data;
 }
 
-async function canAccessCompany(
-  user: Express.AuthenticatedUser,
-  companyId: string
+function serializarProfesional(
+  profesional: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    ...profesional,
+    identificationType:
+      profesional.tipoIdentificacion,
+    identificationNumber:
+      profesional.numeroIdentificacion,
+    firstNames: profesional.nombres,
+    lastNames: profesional.apellidos,
+    position: profesional.cargo,
+    profession: profesional.profesion,
+    professionalRole:
+      profesional.rolProfesional,
+    email: profesional.correo,
+    phone: profesional.celular,
+    address: profesional.direccion,
+    isActive: profesional.activo,
+    userId: profesional.usuarioId,
+    createdAt: profesional.creadoEn,
+    updatedAt: profesional.actualizadoEn,
+  };
+}
+
+function serializarAsignacion(
+  asignacion: Record<string, unknown>
+): Record<string, unknown> {
+  const profesional =
+    asignacion.profesional &&
+    typeof asignacion.profesional ===
+      "object"
+      ? serializarProfesional(
+          asignacion.profesional as Record<
+            string,
+            unknown
+          >
+        )
+      : asignacion.profesional;
+
+  return {
+    ...asignacion,
+    companyId: asignacion.empresaId,
+    professionalId:
+      asignacion.profesionalId,
+    assignmentRole:
+      asignacion.rolAsignacion,
+    startDate: asignacion.fechaInicio,
+    endDate: asignacion.fechaFin,
+    isActive: asignacion.activo,
+    createdAt: asignacion.creadoEn,
+    updatedAt: asignacion.actualizadoEn,
+    professional: profesional,
+  };
+}
+
+function serializarEmpresa(
+  empresa: Record<string, unknown>
+): Record<string, unknown> {
+  const asignaciones =
+    Array.isArray(
+      empresa.asignacionesProfesionales
+    )
+      ? empresa.asignacionesProfesionales.map(
+          (asignacion) =>
+            serializarAsignacion(
+              asignacion as Record<
+                string,
+                unknown
+              >
+            )
+        )
+      : undefined;
+
+  const conteo =
+    empresa._count &&
+    typeof empresa._count === "object"
+      ? (empresa._count as Record<
+          string,
+          unknown
+        >)
+      : undefined;
+
+  return {
+    ...empresa,
+
+    // Alias temporales para el frontend anterior.
+    taxId: empresa.nit,
+    name: empresa.nombre,
+    startDate: empresa.fechaInicio,
+    mainAddress:
+      empresa.direccionPrincipal,
+    mainCity: empresa.ciudadPrincipal,
+    companyEmail: empresa.correoEmpresa,
+    companyDescription:
+      empresa.descripcionEmpresa,
+    mainRiskClass:
+      empresa.claseRiesgoPrincipal,
+    economicActivityCode:
+      empresa.codigoActividadEconomica,
+    economicActivityDescription:
+      empresa.descripcionActividadEconomica,
+    managerName: empresa.nombreGerente,
+    managerEmail: empresa.correoGerente,
+    sstContactName:
+      empresa.nombreContactoSst,
+    sstContactEmail:
+      empresa.correoContactoSst,
+    agreedSstVisits:
+      empresa.visitasSstConvenidas,
+    agreedEmergencyVisits:
+      empresa.visitasEmergenciasConvenidas,
+    isActive: empresa.activo,
+    createdAt: empresa.creadoEn,
+    updatedAt: empresa.actualizadoEn,
+
+    professionalAssignments:
+      asignaciones,
+
+    _count: conteo
+      ? {
+          ...conteo,
+          users: conteo.usuarios ?? 0,
+          professionalAssignments:
+            conteo.asignacionesProfesionales ??
+            0,
+        }
+      : undefined,
+  };
+}
+
+async function puedeAccederEmpresa(
+  usuario: Express.UsuarioAutenticado,
+  empresaId: string
 ): Promise<boolean> {
-  if (isInternalRole(user.role)) {
+  if (esRolInterno(usuario.rol)) {
     return true;
   }
 
-  if (user.companyId === companyId) {
+  if (usuario.empresaId === empresaId) {
     return true;
   }
 
   if (
-    user.role === Role.PROFESSIONAL &&
-    user.professionalId
+    usuario.rol ===
+      RolUsuario.PROFESIONAL &&
+    usuario.profesionalId
   ) {
-    const assignment =
-      await prisma.companyProfessional.findFirst({
-        where: {
-          companyId,
-          professionalId: user.professionalId,
-          isActive: true,
-        },
-        select: {
-          id: true,
-        },
-      });
+    const asignacion =
+      await prisma.empresaProfesional.findFirst(
+        {
+          where: {
+            empresaId,
+            profesionalId:
+              usuario.profesionalId,
+            activo: true,
+          },
+          select: {
+            id: true,
+          },
+        }
+      );
 
-    return Boolean(assignment);
+    return Boolean(asignacion);
   }
 
   return false;
 }
 
-export const companyController = {
-  create: async (
+export const controladorEmpresa = {
+  crear: async (
     req: Request,
     res: Response
   ): Promise<void> => {
     try {
-      const data = buildCompanyData(req.body, false);
+      const data = construirDatosEmpresa(
+        req.body,
+        false
+      );
 
-      const company = await prisma.company.create({
-        data: data as Prisma.CompanyUncheckedCreateInput,
-      });
+      const empresa =
+        await prisma.empresa.create({
+          data:
+            data as Prisma.EmpresaUncheckedCreateInput,
+        });
 
-      res.status(201).json(company);
+      res
+        .status(201)
+        .json(
+          serializarEmpresa(
+            empresa as unknown as Record<
+              string,
+              unknown
+            >
+          )
+        );
     } catch (error) {
-      console.error("[COMPANY-CREATE]", error);
+      console.error(
+        "[EMPRESA-CREAR]",
+        error
+      );
 
-      if (error instanceof ValidationError) {
+      if (error instanceof ErrorValidacion) {
         res.status(400).json({
           error: error.message,
         });
@@ -230,22 +567,25 @@ export const companyController = {
       }
 
       if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error instanceof
+          Prisma.PrismaClientKnownRequestError &&
         error.code === "P2002"
       ) {
         res.status(409).json({
-          error: "Ya existe una empresa con ese NIT.",
+          error:
+            "Ya existe una empresa con ese NIT.",
         });
         return;
       }
 
       res.status(500).json({
-        error: "Error al crear la empresa.",
+        error:
+          "Error al crear la empresa.",
       });
     }
   },
 
-  getAll: async (
+  obtenerTodas: async (
     req: Request,
     res: Response
   ): Promise<void> => {
@@ -257,97 +597,120 @@ export const companyController = {
         return;
       }
 
-      const search = normalizeString(req.query.search);
-      const includeInactive =
-        req.query.includeInactive === "true";
+      const busqueda = normalizarTexto(
+        req.query.busqueda ??
+          req.query.search
+      );
 
-      const filters: Prisma.CompanyWhereInput[] = [];
+      const incluirInactivas =
+        req.query.incluirInactivas ===
+          "true" ||
+        req.query.includeInactive ===
+          "true";
 
-      if (!isInternalRole(req.user.role)) {
-        filters.push({
-          isActive: true,
-        });
-      } else if (!includeInactive) {
-        filters.push({
-          isActive: true,
+      const filtros: Prisma.EmpresaWhereInput[] =
+        [];
+
+      if (
+        !esRolInterno(req.user.rol) ||
+        !incluirInactivas
+      ) {
+        filtros.push({
+          activo: true,
         });
       }
 
-      if (search) {
-        filters.push({
+      if (busqueda) {
+        filtros.push({
           OR: [
             {
-              name: {
-                contains: search,
+              nombre: {
+                contains: busqueda,
               },
             },
             {
-              taxId: {
-                contains: search,
+              nit: {
+                contains: busqueda,
               },
             },
             {
-              mainCity: {
-                contains: search,
+              ciudadPrincipal: {
+                contains: busqueda,
               },
             },
           ],
         });
       }
 
-      if (!isInternalRole(req.user.role)) {
+      if (!esRolInterno(req.user.rol)) {
         if (
-          req.user.role === Role.PROFESSIONAL &&
-          req.user.professionalId
+          req.user.rol ===
+            RolUsuario.PROFESIONAL &&
+          req.user.profesionalId
         ) {
-          filters.push({
-            professionalAssignments: {
+          filtros.push({
+            asignacionesProfesionales: {
               some: {
-                professionalId:
-                  req.user.professionalId,
-                isActive: true,
+                profesionalId:
+                  req.user.profesionalId,
+                activo: true,
               },
             },
           });
-        } else if (req.user.companyId) {
-          filters.push({
-            id: req.user.companyId,
+        } else if (req.user.empresaId) {
+          filtros.push({
+            id: req.user.empresaId,
           });
         } else {
-          filters.push({
-            id: "__NO_COMPANY__",
+          filtros.push({
+            id: "__SIN_EMPRESA__",
           });
         }
       }
 
-      const companies = await prisma.company.findMany({
-        where: {
-          AND: filters,
-        },
-        include: {
-          _count: {
-            select: {
-              users: true,
-              professionalAssignments: true,
+      const empresas =
+        await prisma.empresa.findMany({
+          where: {
+            AND: filtros,
+          },
+          include: {
+            _count: {
+              select: {
+                usuarios: true,
+                asignacionesProfesionales:
+                  true,
+              },
             },
           },
-        },
-        orderBy: {
-          name: "asc",
-        },
-      });
+          orderBy: {
+            nombre: "asc",
+          },
+        });
 
-      res.json(companies);
+      res.json(
+        empresas.map((empresa) =>
+          serializarEmpresa(
+            empresa as unknown as Record<
+              string,
+              unknown
+            >
+          )
+        )
+      );
     } catch (error) {
-      console.error("[COMPANY-GET-ALL]", error);
+      console.error(
+        "[EMPRESA-OBTENER-TODAS]",
+        error
+      );
 
       res.status(500).json({
-        error: "Error al obtener las empresas.",
+        error:
+          "Error al obtener las empresas.",
       });
     }
   },
 
-  getById: async (
+  obtenerPorId: async (
     req: Request,
     res: Response
   ): Promise<void> => {
@@ -361,12 +724,13 @@ export const companyController = {
 
       const id = String(req.params.id);
 
-      const allowed = await canAccessCompany(
-        req.user,
-        id
-      );
+      const permitido =
+        await puedeAccederEmpresa(
+          req.user,
+          id
+        );
 
-      if (!allowed) {
+      if (!permitido) {
         res.status(403).json({
           error:
             "No tienes acceso a esta empresa.",
@@ -374,76 +738,108 @@ export const companyController = {
         return;
       }
 
-      const company = await prisma.company.findUnique({
-        where: {
-          id,
-        },
-        include: {
-          professionalAssignments: {
-            where: {
-              isActive: true,
-            },
-            include: {
-              professional: {
-                select: {
-                  id: true,
-                  firstNames: true,
-                  lastNames: true,
-                  email: true,
-                  phone: true,
-                  profession: true,
-                  professionalRole: true,
-                  isActive: true,
+      const empresa =
+        await prisma.empresa.findUnique({
+          where: {
+            id,
+          },
+          include: {
+            asignacionesProfesionales: {
+              where: {
+                activo: true,
+              },
+              include: {
+                profesional: {
+                  select: {
+                    id: true,
+                    tipoIdentificacion:
+                      true,
+                    numeroIdentificacion:
+                      true,
+                    nombres: true,
+                    apellidos: true,
+                    correo: true,
+                    celular: true,
+                    profesion: true,
+                    rolProfesional: true,
+                    activo: true,
+                  },
                 },
               },
             },
-          },
-          _count: {
-            select: {
-              users: true,
-              professionalAssignments: true,
+            _count: {
+              select: {
+                usuarios: true,
+                asignacionesProfesionales:
+                  true,
+              },
             },
           },
-        },
-      });
+        });
 
-      if (!company) {
+      if (!empresa) {
         res.status(404).json({
           error: "Empresa no encontrada.",
         });
         return;
       }
 
-      res.json(company);
+      res.json(
+        serializarEmpresa(
+          empresa as unknown as Record<
+            string,
+            unknown
+          >
+        )
+      );
     } catch (error) {
-      console.error("[COMPANY-GET-BY-ID]", error);
+      console.error(
+        "[EMPRESA-OBTENER-POR-ID]",
+        error
+      );
 
       res.status(500).json({
-        error: "Error al obtener la empresa.",
+        error:
+          "Error al obtener la empresa.",
       });
     }
   },
 
-  update: async (
+  actualizar: async (
     req: Request,
     res: Response
   ): Promise<void> => {
     try {
       const id = String(req.params.id);
-      const data = buildCompanyData(req.body, true);
 
-      const company = await prisma.company.update({
-        where: {
-          id,
-        },
-        data,
-      });
+      const data = construirDatosEmpresa(
+        req.body,
+        true
+      );
 
-      res.json(company);
+      const empresa =
+        await prisma.empresa.update({
+          where: {
+            id,
+          },
+          data,
+        });
+
+      res.json(
+        serializarEmpresa(
+          empresa as unknown as Record<
+            string,
+            unknown
+          >
+        )
+      );
     } catch (error) {
-      console.error("[COMPANY-UPDATE]", error);
+      console.error(
+        "[EMPRESA-ACTUALIZAR]",
+        error
+      );
 
-      if (error instanceof ValidationError) {
+      if (error instanceof ErrorValidacion) {
         res.status(400).json({
           error: error.message,
         });
@@ -451,65 +847,97 @@ export const companyController = {
       }
 
       if (
-        error instanceof Prisma.PrismaClientKnownRequestError
+        error instanceof
+        Prisma.PrismaClientKnownRequestError
       ) {
         if (error.code === "P2002") {
           res.status(409).json({
-            error: "Ya existe una empresa con ese NIT.",
+            error:
+              "Ya existe una empresa con ese NIT.",
           });
           return;
         }
 
         if (error.code === "P2025") {
           res.status(404).json({
-            error: "Empresa no encontrada.",
+            error:
+              "Empresa no encontrada.",
           });
           return;
         }
       }
 
       res.status(500).json({
-        error: "Error al actualizar la empresa.",
+        error:
+          "Error al actualizar la empresa.",
       });
     }
   },
 
-  delete: async (
+  eliminar: async (
     req: Request,
     res: Response
   ): Promise<void> => {
     try {
       const id = String(req.params.id);
 
-      const company = await prisma.company.update({
-        where: {
-          id,
-        },
-        data: {
-          isActive: false,
-        },
-      });
+      const empresa =
+        await prisma.empresa.update({
+          where: {
+            id,
+          },
+          data: {
+            activo: false,
+          },
+        });
+
+      const respuesta =
+        serializarEmpresa(
+          empresa as unknown as Record<
+            string,
+            unknown
+          >
+        );
 
       res.json({
-        message: "Empresa desactivada correctamente.",
-        company,
+        mensaje:
+          "Empresa desactivada correctamente.",
+        message:
+          "Empresa desactivada correctamente.",
+        empresa: respuesta,
+        company: respuesta,
       });
     } catch (error) {
-      console.error("[COMPANY-DELETE]", error);
+      console.error(
+        "[EMPRESA-ELIMINAR]",
+        error
+      );
 
       if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error instanceof
+          Prisma.PrismaClientKnownRequestError &&
         error.code === "P2025"
       ) {
         res.status(404).json({
-          error: "Empresa no encontrada.",
+          error:
+            "Empresa no encontrada.",
         });
         return;
       }
 
       res.status(500).json({
-        error: "Error al desactivar la empresa.",
+        error:
+          "Error al desactivar la empresa.",
       });
     }
   },
+};
+
+// Alias temporal: mantiene funcionando las rutas actuales.
+export const companyController = {
+  create: controladorEmpresa.crear,
+  getAll: controladorEmpresa.obtenerTodas,
+  getById: controladorEmpresa.obtenerPorId,
+  update: controladorEmpresa.actualizar,
+  delete: controladorEmpresa.eliminar,
 };

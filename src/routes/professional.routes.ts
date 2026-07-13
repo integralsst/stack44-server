@@ -1,87 +1,116 @@
 import { Router } from "express";
-import { Role } from "@prisma/client";
-
-import { professionalController } from "../controllers/professional.controller";
+import { RolUsuario } from "@prisma/client";
 
 import {
-  authenticate,
-  authorize,
+  controladorProfesional,
+} from "../controllers/professional.controller";
+
+import {
+  authenticate as autenticar,
+  authorize as autorizar,
 } from "../middlewares/auth.middleware";
 
 const router = Router();
 
+const rolesInternos = [
+  RolUsuario.SUPERADMIN,
+  RolUsuario.PROPIETARIO,
+  RolUsuario.ADMIN,
+];
+
+// ======================================================
+// PERFIL DEL PROFESIONAL AUTENTICADO
+// ======================================================
+
+router.get(
+  "/mi-perfil",
+  autenticar,
+  autorizar(RolUsuario.PROFESIONAL),
+  controladorProfesional.obtenerMiPerfil
+);
+
+// Alias temporal para el frontend anterior
 router.get(
   "/me",
-  authenticate,
-  authorize(Role.PROFESSIONAL),
-  professionalController.getMe
+  autenticar,
+  autorizar(RolUsuario.PROFESIONAL),
+  controladorProfesional.obtenerMiPerfil
 );
+
+// ======================================================
+// LISTADO Y CREACIÓN
+// ======================================================
 
 router.get(
   "/",
-  authenticate,
-  authorize(
-    Role.SUPERADMIN,
-    Role.OWNER,
-    Role.ADMIN
-  ),
-  professionalController.getAll
+  autenticar,
+  autorizar(...rolesInternos),
+  controladorProfesional.obtenerTodos
 );
 
 router.post(
   "/",
-  authenticate,
-  authorize(
-    Role.SUPERADMIN,
-    Role.OWNER,
-    Role.ADMIN
-  ),
-  professionalController.create
+  autenticar,
+  autorizar(...rolesInternos),
+  controladorProfesional.crear
 );
 
+// ======================================================
+// ASIGNACIONES CON EMPRESAS
+// ======================================================
+
+router.post(
+  "/:id/empresas",
+  autenticar,
+  autorizar(...rolesInternos),
+  controladorProfesional.asignarEmpresa
+);
+
+router.delete(
+  "/:id/empresas/:empresaId",
+  autenticar,
+  autorizar(...rolesInternos),
+  controladorProfesional.retirarEmpresa
+);
+
+// Alias temporales para el frontend anterior
 router.post(
   "/:id/companies",
-  authenticate,
-  authorize(
-    Role.SUPERADMIN,
-    Role.OWNER,
-    Role.ADMIN
-  ),
-  professionalController.assignCompany
+  autenticar,
+  autorizar(...rolesInternos),
+  controladorProfesional.asignarEmpresa
 );
 
 router.delete(
   "/:id/companies/:companyId",
-  authenticate,
-  authorize(
-    Role.SUPERADMIN,
-    Role.OWNER,
-    Role.ADMIN
-  ),
-  professionalController.removeCompanyAssignment
+  autenticar,
+  autorizar(...rolesInternos),
+  controladorProfesional.retirarEmpresa
 );
+
+// ======================================================
+// CONSULTA, ACTUALIZACIÓN Y DESACTIVACIÓN
+// ======================================================
+// Estas rutas deben permanecer después de /mi-perfil y /me
+// para que Express no interprete esas palabras como un ID.
 
 router.get(
   "/:id",
-  authenticate,
-  professionalController.getById
+  autenticar,
+  controladorProfesional.obtenerPorId
 );
 
 router.put(
   "/:id",
-  authenticate,
-  professionalController.update
+  autenticar,
+  controladorProfesional.actualizar
 );
 
 router.delete(
   "/:id",
-  authenticate,
-  authorize(
-    Role.SUPERADMIN,
-    Role.OWNER,
-    Role.ADMIN
-  ),
-  professionalController.delete
+  autenticar,
+  autorizar(...rolesInternos),
+  controladorProfesional.eliminar
 );
 
 export default router;
