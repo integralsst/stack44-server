@@ -12,6 +12,7 @@ import rutasAutenticacion from "./routes/auth.routes";
 import rutasEmpresas from "./routes/company.routes";
 import rutasUsuarios from "./routes/user.routes";
 import rutasProfesionales from "./routes/professional.routes";
+import rutasSgsst from "./routes/sgsst.routes";
 
 const app = express();
 
@@ -55,9 +56,8 @@ app.use(
   cors({
     origin: (origen, callback) => {
       /*
-       * Las solicitudes sin Origin normalmente provienen
-       * de Postman, curl, Render Health Check o servicios
-       * internos. Se permiten.
+       * Postman, curl, Render Health Check y algunos
+       * servicios internos no envían el encabezado Origin.
        */
       if (!origen) {
         callback(null, true);
@@ -82,7 +82,9 @@ app.use(
         )
       );
     },
+
     credentials: true,
+
     methods: [
       "GET",
       "POST",
@@ -91,6 +93,7 @@ app.use(
       "DELETE",
       "OPTIONS",
     ],
+
     allowedHeaders: [
       "Content-Type",
       "Authorization",
@@ -125,21 +128,26 @@ app.get(
     res.json({
       mensaje:
         "Servidor Stack44 operativo 🚀",
-      message:
-        "Servidor Stack44 operativo 🚀",
+
       entorno:
         process.env.NODE_ENV ??
         "development",
-      environment:
-        process.env.NODE_ENV ??
-        "development",
+
       api: {
         autenticacion:
           "/api/autenticacion",
-        empresas: "/api/empresas",
-        usuarios: "/api/usuarios",
+
+        empresas:
+          "/api/empresas",
+
+        usuarios:
+          "/api/usuarios",
+
         profesionales:
           "/api/profesionales",
+
+        sgsst:
+          "/api/sgsst",
       },
     });
   }
@@ -149,12 +157,14 @@ const responderEstado = (
   _req: Request,
   res: Response
 ): void => {
+  const fechaHora =
+    new Date().toISOString();
+
   res.status(200).json({
     estado: "ok",
     status: "ok",
-    fechaHora: new Date().toISOString(),
-    timestamp:
-      new Date().toISOString(),
+    fechaHora,
+    timestamp: fechaHora,
   });
 };
 
@@ -185,14 +195,38 @@ app.use(
   rutasProfesionales
 );
 
+/*
+ * La supermatriz queda disponible desde:
+ *
+ * /api/sgsst/catalogo
+ * /api/sgsst/configuraciones
+ * /api/sgsst/evaluaciones
+ * /api/sgsst/planes-accion
+ */
+app.use(
+  "/api/sgsst",
+  rutasSgsst
+);
+
 // ======================================================
 // ALIAS TEMPORALES PARA EL FRONTEND ACTUAL
 // ======================================================
-// Se conservarán mientras refactorizamos el frontend.
+// Se eliminarán cuando terminemos de traducir el frontend.
 
-app.use("/api/auth", rutasAutenticacion);
-app.use("/api/companies", rutasEmpresas);
-app.use("/api/users", rutasUsuarios);
+app.use(
+  "/api/auth",
+  rutasAutenticacion
+);
+
+app.use(
+  "/api/companies",
+  rutasEmpresas
+);
+
+app.use(
+  "/api/users",
+  rutasUsuarios
+);
 
 app.use(
   "/api/professionals",
@@ -204,9 +238,14 @@ app.use(
 // ======================================================
 
 app.use(
-  (_req: Request, res: Response) => {
+  (
+    req: Request,
+    res: Response
+  ) => {
     res.status(404).json({
       error: "Ruta no encontrada.",
+      metodo: req.method,
+      ruta: req.originalUrl,
     });
   }
 );
@@ -277,7 +316,7 @@ app.listen(
     );
 
     console.log(
-      "API principal disponible en español."
+      `API SG-SST: http://localhost:${PUERTO}/api/sgsst`
     );
   }
 );
