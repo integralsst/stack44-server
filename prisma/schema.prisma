@@ -7,40 +7,194 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// --- MODELOS PRINCIPALES ---
+// ======================================================
+// EMPRESA - CLIENTE
+// ======================================================
 
 model Company {
-  id          String   @id @default(uuid())
-  name        String
-  taxId       String?  @unique // Identificador fiscal (NIT, RUC, etc.)
-  
-  // Relación con los Usuarios (Tenant)
-  users       User[]
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id String @id @default(uuid())
+
+  // Identificación
+  taxId String @unique @db.VarChar(30)
+  name  String @db.VarChar(191)
+
+  // Información general
+  startDate          DateTime? @db.Date
+  mainAddress        String?   @db.VarChar(255)
+  mainCity           String?   @db.VarChar(120)
+  companyEmail       String?   @db.VarChar(191)
+  companyDescription String?   @db.Text
+
+  // Actividad económica
+  mainRiskClass               RiskClass?
+  economicActivityCode        String?    @db.VarChar(30)
+  economicActivityDescription String?    @db.Text
+
+  // Gerencia
+  managerName  String? @db.VarChar(191)
+  managerEmail String? @db.VarChar(191)
+
+  // Contacto SST
+  sstContactName  String? @db.VarChar(191)
+  sstContactEmail String? @db.VarChar(191)
+
+  // Visitas convenidas
+  agreedSstVisits       Int @default(0)
+  agreedEmergencyVisits Int @default(0)
+
+  // Estado
+  isActive Boolean @default(true)
+
+  // Relaciones
+  users                   User[]
+  professionalAssignments CompanyProfessional[]
+
+  // Auditoría
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([name])
+  @@index([mainCity])
+  @@index([companyEmail])
+  @@index([isActive])
 }
+
+// ======================================================
+// PROFESIONAL - PRESTADOR
+// ======================================================
+
+model Professional {
+  id String @id @default(uuid())
+
+  // Identificación
+  identificationType   IdentificationType
+  identificationNumber String             @unique @db.VarChar(40)
+
+  // Información personal
+  firstNames String @db.VarChar(120)
+  lastNames  String @db.VarChar(120)
+
+  // Información laboral
+  position         String? @db.VarChar(150)
+  profession       String? @db.VarChar(191)
+  professionalRole String? @db.VarChar(150)
+
+  // Información de contacto
+  email   String  @unique @db.VarChar(191)
+  phone   String? @db.VarChar(30)
+  address String? @db.VarChar(255)
+
+  // Estado
+  isActive Boolean @default(true)
+
+  // Usuario opcional para iniciar sesión
+  userId String? @unique
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  // Empresas asignadas
+  companyAssignments CompanyProfessional[]
+
+  // Auditoría
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([lastNames, firstNames])
+  @@index([profession])
+  @@index([professionalRole])
+  @@index([isActive])
+}
+
+// ======================================================
+// ASIGNACIÓN PROFESIONAL - EMPRESA
+// ======================================================
+
+model CompanyProfessional {
+  id String @id @default(uuid())
+
+  companyId      String
+  professionalId String
+
+  company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  professional Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  // Información de la asignación
+  assignmentRole String?   @db.VarChar(150)
+  startDate      DateTime? @db.Date
+  endDate        DateTime? @db.Date
+  isActive       Boolean   @default(true)
+
+  // Auditoría
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, professionalId])
+  @@index([companyId])
+  @@index([professionalId])
+  @@index([isActive])
+}
+
+// ======================================================
+// USUARIOS Y AUTENTICACIÓN
+// ======================================================
 
 model User {
-  id          String   @id @default(uuid())
-  email       String   @unique
-  password    String
-  name        String
-  role        Role     @default(USER)
-  
-  // Relación con la Empresa (Tenant)
-  companyId   String?
-  company     Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id String @id @default(uuid())
+
+  // Credenciales
+  email    String @unique @db.VarChar(191)
+  password String @db.VarChar(255)
+
+  // Información básica
+  name String @db.VarChar(191)
+  role Role   @default(USER)
+
+  // Empresa cliente opcional
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  // Perfil profesional opcional
+  professional Professional?
+
+  // Estado de acceso
+  isActive Boolean @default(true)
+
+  // Auditoría
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([role])
+  @@index([isActive])
 }
 
-// --- ENUMS ---
+// ======================================================
+// ENUMS
+// ======================================================
 
 enum Role {
   USER
+  CLIENT_USER
+  CLIENT_ADMIN
+  PROFESSIONAL
   ADMIN
   OWNER
   SUPERADMIN
+}
+
+enum IdentificationType {
+  CC
+  CE
+  TI
+  PPT
+  PASSPORT
+  NIT
+  OTHER
+}
+
+enum RiskClass {
+  I
+  II
+  III
+  IV
+  V
 }

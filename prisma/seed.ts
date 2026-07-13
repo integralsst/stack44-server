@@ -1,59 +1,90 @@
-// prisma/seed.ts
-import { PrismaClient, Role } from '@prisma/client';
-import bcrypt from 'bcrypt'; 
+import {
+  PrismaClient,
+  Role,
+} from "@prisma/client";
+
+import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
-async function main() {
-  console.log('🌱 Iniciando el proceso de creación de datos...');
+const SUPERADMIN_EMAIL =
+  "superadmin@stack4four.com";
 
-  // 1. Crear la empresa (usamos upsert para evitar errores si el script se corre 2 veces)
-  const company = await prisma.company.upsert({
-    where: { taxId: 'NIT-ECLICZA-001' }, 
-    update: {}, // Si ya existe, no hace nada
+const SUPERADMIN_PASSWORD =
+  "Stack44Admin2026!";
+
+async function main(): Promise<void> {
+  console.log(
+    "🌱 Iniciando la creación de datos iniciales..."
+  );
+
+  const hashedPassword = await bcrypt.hash(
+    SUPERADMIN_PASSWORD,
+    12
+  );
+
+  const superadmin = await prisma.user.upsert({
+    where: {
+      email: SUPERADMIN_EMAIL,
+    },
+
+    update: {
+      name: "Superadministrador Stack44",
+      password: hashedPassword,
+      role: Role.SUPERADMIN,
+      companyId: null,
+      isActive: true,
+    },
+
     create: {
-      name: 'Eclicza',
-      taxId: 'NIT-ECLICZA-001',
+      name: "Superadministrador Stack44",
+      email: SUPERADMIN_EMAIL,
+      password: hashedPassword,
+      role: Role.SUPERADMIN,
+      companyId: null,
+      isActive: true,
+    },
+
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      companyId: true,
+      isActive: true,
+      createdAt: true,
     },
   });
 
-  console.log(`🏢 Empresa lista: ${company.name} (ID: ${company.id})`);
+  console.log("");
+  console.log("✅ Superadministrador creado:");
+  console.log(`   ID: ${superadmin.id}`);
+  console.log(`   Nombre: ${superadmin.name}`);
+  console.log(`   Correo: ${superadmin.email}`);
+  console.log(`   Rol: ${superadmin.role}`);
+  console.log(`   Activo: ${superadmin.isActive}`);
 
-  // 2. Encriptar la contraseña genérica para todos los usuarios
-  const plainPassword = 'password123';
-  const hashedPassword = await bcrypt.hash(plainPassword, 10);
+  console.log("");
+  console.log("🔐 Credenciales de acceso:");
+  console.log(`   Usuario: ${SUPERADMIN_EMAIL}`);
+  console.log(
+    `   Contraseña: ${SUPERADMIN_PASSWORD}`
+  );
 
-  // 3. Definir la lista de usuarios a crear
-  const usersToCreate = [
-    { email: 'superadmin@eclicza.com', name: 'SuperAdmin Eclicza', role: Role.SUPERADMIN },
-    { email: 'owner@eclicza.com', name: 'Dueño Eclicza', role: Role.OWNER },
-    { email: 'admin@eclicza.com', name: 'Administrador Eclicza', role: Role.ADMIN },
-    { email: 'user@eclicza.com', name: 'Usuario Eclicza', role: Role.USER },
-  ];
-
-  // 4. Crear los usuarios iterando sobre la lista
-  for (const userData of usersToCreate) {
-    const user = await prisma.user.upsert({
-      where: { email: userData.email },
-      update: {}, 
-      create: {
-        email: userData.email,
-        password: hashedPassword,
-        name: userData.name,
-        role: userData.role,
-        companyId: company.id, // Relación con la empresa creada arriba
-      },
-    });
-    console.log(`👤 Creado: ${user.email} | Rol: ${user.role} | Pass: ${plainPassword}`);
-  }
-
-  console.log('✅ Proceso finalizado con éxito.');
+  console.log("");
+  console.log(
+    "⚠️ Cambia esta contraseña antes de utilizar la aplicación en producción."
+  );
 }
 
 main()
-  .catch((e) => {
-    console.error('❌ Error ejecutando el seed:', e);
-    process.exit(1);
+  .catch((error: unknown) => {
+    console.error(
+      "❌ Error ejecutando el seed:",
+      error
+    );
+
+    process.exitCode = 1;
   })
   .finally(async () => {
     await prisma.$disconnect();

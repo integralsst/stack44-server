@@ -1,15 +1,58 @@
-// src/routes/company.routes.ts
-import { Router } from 'express';
-import { companyController } from '../controllers/company.controller';
-import { authenticate } from '../middlewares/auth.middleware'; // Ajusta esta ruta según tu proyecto
+import { Router } from "express";
+import { Role } from "@prisma/client";
+
+import { companyController } from "../controllers/company.controller";
+
+import {
+  authenticate,
+  authorize,
+} from "../middlewares/auth.middleware";
 
 const router = Router();
 
-// Todas las rutas base: /api/companies ahora están protegidas
-router.post('/', authenticate, companyController.create);
-router.get('/', authenticate, companyController.getAll);
-router.get('/:id', authenticate, companyController.getById);
-router.put('/:id', authenticate, companyController.update);
-router.delete('/:id', authenticate, companyController.delete);
+router.get(
+  "/",
+  authenticate,
+  companyController.getAll
+);
+
+router.get(
+  "/:id",
+  authenticate,
+  companyController.getById
+);
+
+router.post(
+  "/",
+  authenticate,
+  authorize(
+    Role.SUPERADMIN,
+    Role.OWNER,
+    Role.ADMIN
+  ),
+  companyController.create
+);
+
+router.put(
+  "/:id",
+  authenticate,
+  authorize(
+    Role.SUPERADMIN,
+    Role.OWNER,
+    Role.ADMIN
+  ),
+  companyController.update
+);
+
+router.delete(
+  "/:id",
+  authenticate,
+  authorize(
+    Role.SUPERADMIN,
+    Role.OWNER,
+    Role.ADMIN
+  ),
+  companyController.delete
+);
 
 export default router;

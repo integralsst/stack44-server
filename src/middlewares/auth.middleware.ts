@@ -1,41 +1,148 @@
-import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
+import { NextFunction, Request, Response } from "express";
+import { JwtPayload } from "jsonwebtoken";
+import jwt from "jsonwebtoken";
+import { Role } from "@prisma/client";
 
-// 1. EXTENSIÓN GLOBAL DE EXPRESS
-// Esto le dice a TypeScript en todo el proyecto que req.user existe.
-declare global {
-  namespace Express {
-    interface Request {
-      user?: {
-        userId: string | number;
-        email?: string;
-        role?: string;
-        companyId?: string | null;
-      };
-    }
-  }
+import { prisma } from "../lib/prisma";
+
+interface AccessTokenPayload extends JwtPayload {
+  userId: string;
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || 'super_secreto_para_firmar_tokens_sis_2026';
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
 
-export const authenticate = (req: Request, res: Response, next: NextFunction): void => {
-  const token = req.headers.authorization?.split(' ')[1];
-
-  if (!token) {
-    res.status(401).json({ error: 'Acceso denegado. No hay token.' });
-    return;
+  if (!secret) {
+    throw new Error("JWT_SECRET no está configurado.");
   }
 
+  return secret;
+}
+
+export const authenticate = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { 
-      userId: string | number; 
-      email: string; 
-      role: string 
+    const authorization = req.headers.authorization;
+
+    if (!authorization?.startsWith("Bearer ")) {
+      res.status(401).json({
+        error: "Token de autenticación no proporcionado.",
+      });
+      return;
+    }
+
+    const token = authorization.split(" ")[1];
+
+    const decoded = jwt.verify(
+      token,
+      getJwtSecret()
+    ) as AccessTokenPayload;
+
+    if (!decoded.userId) {
+      res.status(401).json({
+        error: "Token inválido.",
+      });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({
+      where: {
+        id: decoded.userId,
+      },
+      include: {
+        professional: {
+          select: {
+            id: true,
+            isActive: true,
+          },
+        },
+        company: {
+          select: {
+            id: true,
+            isActive: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      res.status(401).json({
+        error: "El usuario asociado al token no existe.",
+      });
+      return;
+    }
+
+    if (!user.isActive) {
+      res.status(403).json({
+        error: "Tu cuenta está inactiva.",
+      });
+      return;
+    }
+
+    if (
+      (user.role === Role.CLIENT_ADMIN ||
+        user.role === Role.CLIENT_USER) &&
+      user.company &&
+      !user.company.isActive
+    ) {
+      res.status(403).json({
+        error: "La empresa asociada a tu cuenta está inactiva.",
+      });
+      return;
+    }
+
+    if (
+      user.role === Role.PROFESSIONAL &&
+      user.professional &&
+      !user.professional.isActive
+    ) {
+      res.status(403).json({
+        error: "El perfil profesional está inactivo.",
+      });
+      return;
+    }
+
+    req.user = {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      companyId: user.companyId,
+      professionalId: user.professional?.id ?? null,
     };
-    
-    req.user = decoded;
+
     next();
   } catch (error) {
-    res.status(401).json({ error: 'Token no válido.' });
+    console.error("[AUTH-MIDDLEWARE]", error);
+
+    res.status(401).json({
+      error: "Token inválido o vencido.",
+    });
   }
+};
+
+export const authorize = (...allowedRoles: Role[]) => {
+  return (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): void => {
+    if (!req.user) {
+      res.status(401).json({
+        error: "No autenticado.",
+      });
+      return;
+    }
+
+    if (!allowedRoles.includes(req.user.role)) {
+      res.status(403).json({
+        error: "No tienes permisos para realizar esta acción.",
+      });
+      return;
+    }
+
+    next();
+  };
 };

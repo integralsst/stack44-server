@@ -1,102 +1,295 @@
-// src/controllers/auth.controller.ts
-import { Request, Response } from 'express';
-import { PrismaClient, Role } from '@prisma/client'; 
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
+import { Request, Response } from "express";
+import { Prisma } from "@prisma/client";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 
-const prisma = new PrismaClient();
-const JWT_SECRET = process.env.JWT_SECRET || 'una_clave_larga_y_privada';
+import { prisma } from "../lib/prisma";
 
-export const register = async (req: Request, res: Response): Promise<void> => {
-  console.log(`[AUTH-REGISTER] Iniciando petición de registro para: ${req.body.email}`);
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+
+  if (!secret) {
+    throw new Error("JWT_SECRET no está configurado.");
+  }
+
+  return secret;
+}
+
+function normalizeEmail(email: unknown): string {
+  return typeof email === "string"
+    ? email.trim().toLowerCase()
+    : "";
+}
+
+export const register = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
-    const { email, password, name, companyId, role } = req.body;
+    const email = normalizeEmail(req.body.email);
+    const name =
+      typeof req.body.name === "string"
+        ? req.body.name.trim()
+        : "";
 
-    console.log(`[AUTH-REGISTER] Buscando si el usuario ${email} ya existe...`);
-    const existingUser = await prisma.user.findUnique({ where: { email } });
-    
-    if (existingUser) {
-      console.warn(`[AUTH-REGISTER] Rechazado: El correo ${email} ya está registrado.`);
-      res.status(400).json({ error: 'El correo ya está registrado.' });
+    const password =
+      typeof req.body.password === "string"
+        ? req.body.password
+        : "";
+
+    if (!name || !email || !password) {
+      res.status(400).json({
+        error: "Nombre, correo y contraseña son obligatorios.",
+      });
       return;
     }
 
-    console.log(`[AUTH-REGISTER] Encriptando contraseña...`);
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
+    if (password.length < 8) {
+      res.status(400).json({
+        error: "La contraseña debe tener mínimo 8 caracteres.",
+      });
+      return;
+    }
 
-    console.log(`[AUTH-REGISTER] Creando usuario en la base de datos...`);
-    const newUser = await prisma.user.create({
-      data: { 
-        email, 
-        password: hashedPassword, 
-        name, 
-        companyId: companyId || null,
-        role: (role as Role) || 'USER'
-      }
+    const existingUser = await prisma.user.findUnique({
+      where: {
+        email,
+      },
     });
 
-    console.log(`[AUTH-REGISTER] Éxito: Usuario creado con ID: ${newUser.id}`);
-    res.status(201).json({ message: 'Usuario creado exitosamente', userId: newUser.id });
-  } catch (error: any) {
-    console.error('[AUTH-REGISTER] ERROR CRÍTICO durante el registro:');
-    console.error(error.message || error);
-    console.error(error.stack); // Imprime la traza completa para Render
-    res.status(500).json({ error: 'Error interno del servidor al registrar.' });
+    if (existingUser) {
+      res.status(409).json({
+        error: "El correo ya está registrado.",
+      });
+      return;
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const user = await prisma.user.create({
+      data: {
+        name,
+        email,
+        password: hashedPassword,
+        role: "USER",
+        companyId: null,
+        isActive: true,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        companyId: true,
+        isActive: true,
+        createdAt: true,
+      },
+    });
+
+    res.status(201).json({
+      message: "Usuario creado exitosamente.",
+      user,
+    });
+  } catch (error) {
+    console.error("[AUTH-REGISTER]", error);
+
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      res.status(409).json({
+        error: "El correo ya está registrado.",
+      });
+      return;
+    }
+
+    res.status(500).json({
+      error: "Error interno del servidor al registrar.",
+    });
   }
 };
 
-export const login = async (req: Request, res: Response): Promise<void> => {
-  console.log(`[AUTH-LOGIN] Iniciando petición de login para: ${req.body.email}`);
+export const login = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
-    const { email, password } = req.body;
+    const email = normalizeEmail(req.body.email);
 
-    console.log(`[AUTH-LOGIN] Consultando usuario en Prisma...`);
-    const user = await prisma.user.findUnique({ where: { email } });
-    
-    if (!user) {
-      console.warn(`[AUTH-LOGIN] Fallo: No se encontró el usuario ${email} en la base de datos.`);
-      res.status(401).json({ error: 'Credenciales inválidas.' });
+    const password =
+      typeof req.body.password === "string"
+        ? req.body.password
+        : "";
+
+    if (!email || !password) {
+      res.status(400).json({
+        error: "Correo y contraseña son obligatorios.",
+      });
       return;
     }
 
-    console.log(`[AUTH-LOGIN] Usuario encontrado. Comparando contraseñas...`);
-    const isValidPassword = await bcrypt.compare(password, user.password);
-    
-    if (!isValidPassword) {
-      console.warn(`[AUTH-LOGIN] Fallo: La contraseña ingresada no coincide para ${email}.`);
-      res.status(401).json({ error: 'Credenciales inválidas.' });
-      return;
-    }
-
-    console.log(`[AUTH-LOGIN] Contraseña válida. Generando token JWT...`);
-    const token = jwt.sign(
-      { 
-        userId: user.id, 
-        email: user.email, 
-        role: user.role, 
-        companyId: user.companyId 
+    const user = await prisma.user.findUnique({
+      where: {
+        email,
       },
-      JWT_SECRET,
-      { expiresIn: '24h' }
+      include: {
+        company: {
+          select: {
+            id: true,
+            name: true,
+            taxId: true,
+            isActive: true,
+          },
+        },
+        professional: {
+          select: {
+            id: true,
+            firstNames: true,
+            lastNames: true,
+            professionalRole: true,
+            isActive: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      res.status(401).json({
+        error: "Credenciales inválidas.",
+      });
+      return;
+    }
+
+    if (!user.isActive) {
+      res.status(403).json({
+        error: "Tu cuenta se encuentra inactiva.",
+      });
+      return;
+    }
+
+    if (user.company && !user.company.isActive) {
+      res.status(403).json({
+        error: "La empresa asociada se encuentra inactiva.",
+      });
+      return;
+    }
+
+    if (user.professional && !user.professional.isActive) {
+      res.status(403).json({
+        error: "El perfil profesional se encuentra inactivo.",
+      });
+      return;
+    }
+
+    const validPassword = await bcrypt.compare(
+      password,
+      user.password
     );
 
-    console.log(`[AUTH-LOGIN] Éxito: Login completado para ${email}. Enviando respuesta.`);
+    if (!validPassword) {
+      res.status(401).json({
+        error: "Credenciales inválidas.",
+      });
+      return;
+    }
+
+    const token = jwt.sign(
+      {
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+        companyId: user.companyId,
+        professionalId: user.professional?.id ?? null,
+      },
+      getJwtSecret(),
+      {
+        expiresIn: "24h",
+      }
+    );
+
     res.json({
-      message: 'Login exitoso',
+      message: "Login exitoso.",
       token,
       user: {
         id: user.id,
         name: user.name,
         email: user.email,
+        role: user.role,
         companyId: user.companyId,
-        role: user.role
-      }
+        professionalId: user.professional?.id ?? null,
+        company: user.company,
+        professional: user.professional,
+      },
     });
-  } catch (error: any) {
-    console.error('[AUTH-LOGIN] ERROR CRÍTICO durante el inicio de sesión:');
-    console.error(error.message || error);
-    console.error(error.stack); // Imprime la traza completa para Render
-    res.status(500).json({ error: 'Error interno del servidor al iniciar sesión.' });
+  } catch (error) {
+    console.error("[AUTH-LOGIN]", error);
+
+    res.status(500).json({
+      error: "Error interno del servidor al iniciar sesión.",
+    });
+  }
+};
+
+export const getMe = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        error: "No autenticado.",
+      });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({
+      where: {
+        id: req.user.userId,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        companyId: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+        company: {
+          select: {
+            id: true,
+            name: true,
+            taxId: true,
+            isActive: true,
+          },
+        },
+        professional: {
+          select: {
+            id: true,
+            firstNames: true,
+            lastNames: true,
+            identificationNumber: true,
+            professionalRole: true,
+            profession: true,
+            isActive: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      res.status(404).json({
+        error: "Usuario no encontrado.",
+      });
+      return;
+    }
+
+    res.json(user);
+  } catch (error) {
+    console.error("[AUTH-ME]", error);
+
+    res.status(500).json({
+      error: "Error al consultar la sesión.",
+    });
   }
 };
