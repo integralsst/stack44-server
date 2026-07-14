@@ -12,11 +12,11 @@ import rutasAutenticacion from "./routes/auth.routes";
 import rutasEmpresas from "./routes/company.routes";
 import rutasUsuarios from "./routes/user.routes";
 import rutasProfesionales from "./routes/professional.routes";
-import rutasSgsst from "./routes/sgsst.routes";
 
 const app = express();
 
-const PUERTO = Number(process.env.PORT) || 4000;
+const PUERTO =
+  Number(process.env.PORT) || 4000;
 
 // ======================================================
 // CONFIGURACIÓN GENERAL
@@ -27,13 +27,16 @@ app.disable("x-powered-by");
 function normalizarOrigen(
   origen: string
 ): string {
-  return origen.trim().replace(/\/+$/, "");
+  return origen
+    .trim()
+    .replace(/\/+$/, "");
 }
 
 const origenesConfigurados = [
   process.env.FRONTEND_URL,
-  ...(process.env.ALLOWED_ORIGINS?.split(",") ??
-    []),
+  ...(process.env.ALLOWED_ORIGINS?.split(
+    ","
+  ) ?? []),
 ]
   .filter(
     (origen): origen is string =>
@@ -57,7 +60,7 @@ app.use(
     origin: (origen, callback) => {
       /*
        * Postman, curl, Render Health Check y algunos
-       * servicios internos no envían el encabezado Origin.
+       * servicios internos pueden no enviar Origin.
        */
       if (!origen) {
         callback(null, true);
@@ -145,9 +148,6 @@ app.get(
 
         profesionales:
           "/api/profesionales",
-
-        sgsst:
-          "/api/sgsst",
       },
     });
   }
@@ -168,8 +168,15 @@ const responderEstado = (
   });
 };
 
-app.get("/salud", responderEstado);
-app.get("/health", responderEstado);
+app.get(
+  "/salud",
+  responderEstado
+);
+
+app.get(
+  "/health",
+  responderEstado
+);
 
 // ======================================================
 // RUTAS PRINCIPALES EN ESPAÑOL
@@ -195,23 +202,11 @@ app.use(
   rutasProfesionales
 );
 
-/*
- * La supermatriz queda disponible desde:
- *
- * /api/sgsst/catalogo
- * /api/sgsst/configuraciones
- * /api/sgsst/evaluaciones
- * /api/sgsst/planes-accion
- */
-app.use(
-  "/api/sgsst",
-  rutasSgsst
-);
-
 // ======================================================
 // ALIAS TEMPORALES PARA EL FRONTEND ACTUAL
 // ======================================================
-// Se eliminarán cuando terminemos de traducir el frontend.
+// Se conservarán mientras se termina de traducir
+// el frontend y sus llamadas a la API.
 
 app.use(
   "/api/auth",
@@ -316,7 +311,7 @@ app.listen(
     );
 
     console.log(
-      `API SG-SST: http://localhost:${PUERTO}/api/sgsst`
+      "API principal de Stack44 disponible."
     );
   }
 );
