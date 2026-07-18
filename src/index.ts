@@ -8,10 +8,15 @@ import express, {
 
 import cors from "cors";
 
+// ======================================================
+// RUTAS
+// ======================================================
+
 import rutasAutenticacion from "./routes/auth.routes";
 import rutasEmpresas from "./routes/company.routes";
 import rutasUsuarios from "./routes/user.routes";
 import rutasProfesionales from "./routes/professional.routes";
+import rutasSupermatriz from "./routes/supermatriz.routes";
 
 const app = express();
 
@@ -148,6 +153,9 @@ app.get(
 
         profesionales:
           "/api/profesionales",
+
+        supermatriz:
+          "/api/supermatriz",
       },
     });
   }
@@ -202,6 +210,11 @@ app.use(
   rutasProfesionales
 );
 
+app.use(
+  "/api/supermatriz",
+  rutasSupermatriz
+);
+
 // ======================================================
 // ALIAS TEMPORALES PARA EL FRONTEND ACTUAL
 // ======================================================
@@ -226,6 +239,15 @@ app.use(
 app.use(
   "/api/professionals",
   rutasProfesionales
+);
+
+/*
+ * Alias opcional en inglés para la Supermatriz.
+ * Puedes conservarlo para compatibilidad futura.
+ */
+app.use(
+  "/api/supermatrix",
+  rutasSupermatriz
 );
 
 // ======================================================
@@ -312,6 +334,10 @@ app.listen(
 
     console.log(
       "API principal de Stack44 disponible."
+    );
+
+    console.log(
+      "Módulo Supermatriz disponible en /api/supermatriz"
     );
   }
 );

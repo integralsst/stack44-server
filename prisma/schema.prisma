@@ -114,14 +114,18 @@ model EmpresaProfesional {
   empresaId     String
   profesionalId String
 
-  empresa     Empresa     @relation(fields: [empresaId], references: [id], onDelete: Cascade)
-  profesional Profesional @relation(fields: [profesionalId], references: [id], onDelete: Cascade)
+  empresa     Empresa     @relation(fields: [empresaId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  profesional Profesional @relation(fields: [profesionalId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   // Información de la asignación
-  rolAsignacion String?   @db.VarChar(150)
-  fechaInicio   DateTime? @db.Date
-  fechaFin      DateTime? @db.Date
-  activo        Boolean   @default(true)
+  rolAsignacion         String?   @db.VarChar(150)
+  esProfesionalAsignado Boolean   @default(false)
+  fechaInicio           DateTime? @db.Date
+  fechaFin              DateTime? @db.Date
+  activo                Boolean   @default(true)
+
+  // Categorías que puede gestionar en esta empresa
+  categoriasGestion EmpresaProfesionalCategoriaGestion[]
 
   // Auditoría
   creadoEn      DateTime @default(now())
@@ -130,6 +134,7 @@ model EmpresaProfesional {
   @@unique([empresaId, profesionalId], map: "uq_empresa_profesional")
   @@index([empresaId])
   @@index([profesionalId])
+  @@index([empresaId, esProfesionalAsignado, activo])
   @@index([activo])
 }
 
@@ -155,6 +160,9 @@ model Usuario {
   // Perfil profesional opcional
   profesional Profesional?
 
+  // Historial de cambios realizados sobre la Supermatriz
+  historialCambiosSupermatriz HistorialCambioSupermatriz[]
+
   // Estado
   activo Boolean @default(true)
 
@@ -168,7 +176,7 @@ model Usuario {
 }
 
 // ======================================================
-// ENUMERACIONES
+// ENUMERACIONES GENERALES
 // ======================================================
 
 enum RolUsuario {
@@ -197,4 +205,527 @@ enum ClaseRiesgo {
   III
   IV
   V
+}
+
+enum EstadoRegistro {
+  ACTIVO
+  INACTIVO
+}
+
+enum EstadoVersionSupermatriz {
+  BORRADOR
+  VIGENTE
+  CERRADA
+}
+
+enum BloqueEvergreen {
+  PRIMER_CUATRIMESTRE
+  SEGUNDO_CUATRIMESTRE
+  TERCER_CUATRIMESTRE
+}
+
+enum TipoFechaBaseVigencia {
+  FECHA_DOCUMENTO
+  FECHA_ULTIMA_REVISION
+  FECHA_FIJA_CALENDARIO
+}
+
+enum UnidadPeriodicidad {
+  DIA
+  SEMANA
+  MES
+  ANIO
+}
+
+enum FuentePeriodicidad {
+  NORMATIVA
+  DIRECTRIZ_INTERNA
+  CONFIGURACION_TECNICA
+}
+
+enum CodigoCategoriaGestion {
+  DOCUMENTAL
+  INTERVENCION
+  EMERGENCIAS
+}
+
+enum CodigoGrupoMinisterial {
+  ESTANDARES_7
+  ESTANDARES_21
+  ESTANDARES_60
+}
+
+enum ModalidadGestion {
+  PRESENCIAL
+  REMOTA
+  OFICINA
+  SEGUIMIENTO_PUNTUAL
+}
+
+// ======================================================
+// SUPERMATRIZ NORMALIZADA
+// ======================================================
+
+model CicloPhva {
+  id                 Int            @id @default(autoincrement())
+  codigo             String         @unique @db.VarChar(20)
+  nombre             String         @db.VarChar(100)
+  orden              Int
+  porcentajeEsperado Decimal?       @db.Decimal(5, 2)
+  estado             EstadoRegistro @default(ACTIVO)
+  createdAt          DateTime       @default(now()) @db.DateTime(3)
+  updatedAt          DateTime       @updatedAt @db.DateTime(3)
+
+  categorias CategoriaEstandar[]
+
+  @@index([orden])
+  @@index([estado])
+  @@map("ciclos_phva")
+}
+
+model CategoriaEstandar {
+  id                 Int            @id @default(autoincrement())
+  cicloPhvaId        Int
+  codigo             String?        @db.VarChar(50)
+  nombre             String         @db.VarChar(191)
+  descripcion        String?        @db.Text
+  orden              Int
+  porcentajeEsperado Decimal?       @db.Decimal(5, 2)
+  estado             EstadoRegistro @default(ACTIVO)
+  createdAt          DateTime       @default(now()) @db.DateTime(3)
+  updatedAt          DateTime       @updatedAt @db.DateTime(3)
+
+  cicloPhva  CicloPhva  @relation(fields: [cicloPhvaId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  estandares Estandar[]
+
+  @@unique([cicloPhvaId, nombre])
+  @@index([cicloPhvaId, orden])
+  @@index([estado])
+  @@map("categorias_estandar")
+}
+
+model Estandar {
+  id                              Int            @id @default(autoincrement())
+  categoriaEstandarId             Int
+  codigo                          String?        @unique @db.VarChar(50)
+  nombre                          String         @db.VarChar(191)
+  descripcion                     String?        @db.Text
+  orden                           Int
+  calificacionMinisterialEsperada Decimal?       @db.Decimal(5, 2)
+  estado                          EstadoRegistro @default(ACTIVO)
+  createdAt                       DateTime       @default(now()) @db.DateTime(3)
+  updatedAt                       DateTime       @updatedAt @db.DateTime(3)
+
+  categoriaEstandar   CategoriaEstandar          @relation(fields: [categoriaEstandarId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  aspectos            Aspecto[]
+  gruposMinisteriales EstandarGrupoMinisterial[]
+
+  @@unique([categoriaEstandarId, nombre])
+  @@index([categoriaEstandarId, orden])
+  @@index([estado])
+  @@map("estandares")
+}
+
+model Proceso {
+  id          Int            @id @default(autoincrement())
+  codigo      String?        @unique @db.VarChar(50)
+  nombre      String         @unique @db.VarChar(191)
+  descripcion String?        @db.Text
+  estado      EstadoRegistro @default(ACTIVO)
+  createdAt   DateTime       @default(now()) @db.DateTime(3)
+  updatedAt   DateTime       @updatedAt @db.DateTime(3)
+
+  tareas SupermatrizTarea[]
+
+  @@index([estado])
+  @@map("procesos")
+}
+
+model Aspecto {
+  id          Int            @id @default(autoincrement())
+  estandarId  Int
+  codigo      String?        @unique @db.VarChar(50)
+  nombre      String         @db.VarChar(191)
+  descripcion String?        @db.Text
+  orden       Int
+  estado      EstadoRegistro @default(ACTIVO)
+  createdAt   DateTime       @default(now()) @db.DateTime(3)
+  updatedAt   DateTime       @updatedAt @db.DateTime(3)
+
+  estandar                    Estandar                       @relation(fields: [estandarId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  planAccionEspecifico        PlanAccionEspecifico?
+  tareas                      SupermatrizTarea[]
+  configuracion               ConfiguracionAspecto?
+  configuracionVigencia       ConfiguracionVigenciaAspecto?
+  configuracionTareaCotidiana ConfiguracionTareaCotidiana?
+  configuracionEvidencia      ConfiguracionEvidenciaAspecto?
+  configuracionRevision       ConfiguracionRevisionTecnica?
+  palabrasClave               AspectoPalabraClave[]
+  requisitosNormativos        AspectoRequisitoNormativo[]
+  reglasAprobacion            ReglaAprobacionGestion[]
+  vigencias                   VigenciaAspecto[]
+
+  @@unique([estandarId, nombre])
+  @@index([estandarId, orden])
+  @@index([estado])
+  @@map("aspectos")
+}
+
+model PlanAccionEspecifico {
+  id          Int            @id @default(autoincrement())
+  aspectoId   Int            @unique
+  descripcion String         @db.Text
+  estado      EstadoRegistro @default(ACTIVO)
+  createdAt   DateTime       @default(now()) @db.DateTime(3)
+  updatedAt   DateTime       @updatedAt @db.DateTime(3)
+
+  aspecto Aspecto @relation(fields: [aspectoId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([estado])
+  @@map("planes_accion_especificos")
+}
+
+model VersionSupermatriz {
+  id           Int                      @id @default(autoincrement())
+  nombre       String                   @unique @db.VarChar(100)
+  descripcion  String?                  @db.Text
+  estado       EstadoVersionSupermatriz @default(BORRADOR)
+  vigenteDesde DateTime?                @db.Date
+  vigenteHasta DateTime?                @db.Date
+  createdAt    DateTime                 @default(now()) @db.DateTime(3)
+  updatedAt    DateTime                 @updatedAt @db.DateTime(3)
+
+  tareas  SupermatrizTarea[]
+  cambios HistorialCambioSupermatriz[]
+
+  @@index([estado])
+  @@index([vigenteDesde, vigenteHasta])
+  @@map("versiones_supermatriz")
+}
+
+model SupermatrizTarea {
+  id                   Int     @id @default(autoincrement())
+  versionSupermatrizId Int
+  aspectoId            Int
+  procesoId            Int
+  codigo               String? @unique @db.VarChar(50)
+  orden                Int
+
+  // Información operativa de la fila maestra
+  ejecucion               String? @db.Text
+  fundamentosSoportes     String? @db.Text
+  responsableActividad    String? @db.VarChar(255)
+  metasEstandar           String? @db.Text
+  recursosAdministrativos String? @db.Text
+
+  estado    EstadoRegistro @default(ACTIVO)
+  createdAt DateTime       @default(now()) @db.DateTime(3)
+  updatedAt DateTime       @updatedAt @db.DateTime(3)
+
+  versionSupermatriz VersionSupermatriz                 @relation(fields: [versionSupermatrizId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  aspecto            Aspecto                            @relation(fields: [aspectoId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  proceso            Proceso                            @relation(fields: [procesoId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  categoriasGestion  SupermatrizTareaCategoriaGestion[]
+
+  @@unique([versionSupermatrizId, aspectoId, procesoId])
+  @@index([versionSupermatrizId, orden])
+  @@index([aspectoId])
+  @@index([procesoId])
+  @@index([estado])
+  @@map("supermatriz_tareas")
+}
+
+// ======================================================
+// CATEGORÍAS DE GESTIÓN
+// ======================================================
+
+model CategoriaGestion {
+  id          Int                    @id @default(autoincrement())
+  codigo      CodigoCategoriaGestion @unique
+  nombre      String                 @db.VarChar(100)
+  descripcion String?                @db.Text
+  estado      EstadoRegistro         @default(ACTIVO)
+  createdAt   DateTime               @default(now()) @db.DateTime(3)
+  updatedAt   DateTime               @updatedAt @db.DateTime(3)
+
+  tareas                  SupermatrizTareaCategoriaGestion[]
+  asignacionesProfesional EmpresaProfesionalCategoriaGestion[]
+
+  @@index([estado])
+  @@map("categorias_gestion")
+}
+
+model SupermatrizTareaCategoriaGestion {
+  supermatrizTareaId Int
+  categoriaGestionId Int
+  createdAt          DateTime @default(now()) @db.DateTime(3)
+
+  supermatrizTarea SupermatrizTarea @relation(fields: [supermatrizTareaId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  categoriaGestion CategoriaGestion @relation(fields: [categoriaGestionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([supermatrizTareaId, categoriaGestionId])
+  @@index([categoriaGestionId])
+  @@map("supermatriz_tarea_categorias_gestion")
+}
+
+model EmpresaProfesionalCategoriaGestion {
+  empresaProfesionalId String
+  categoriaGestionId   Int
+  createdAt            DateTime @default(now()) @db.DateTime(3)
+
+  empresaProfesional EmpresaProfesional @relation(fields: [empresaProfesionalId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  categoriaGestion   CategoriaGestion   @relation(fields: [categoriaGestionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([empresaProfesionalId, categoriaGestionId])
+  @@index([categoriaGestionId])
+  @@map("empresa_profesional_categorias_gestion")
+}
+
+// ======================================================
+// GRUPOS MINISTERIALES
+// Se aplican a los estándares, no a las empresas.
+// ======================================================
+
+model GrupoMinisterial {
+  id                    Int                    @id @default(autoincrement())
+  codigo                CodigoGrupoMinisterial @unique
+  nombre                String                 @db.VarChar(100)
+  porcentajeEvaluable   Decimal                @db.Decimal(5, 2)
+  porcentajeComplemento Decimal                @db.Decimal(5, 2)
+  estado                EstadoRegistro         @default(ACTIVO)
+  createdAt             DateTime               @default(now()) @db.DateTime(3)
+  updatedAt             DateTime               @updatedAt @db.DateTime(3)
+
+  estandares EstandarGrupoMinisterial[]
+
+  @@index([estado])
+  @@map("grupos_ministeriales")
+}
+
+model EstandarGrupoMinisterial {
+  estandarId         Int
+  grupoMinisterialId Int
+  createdAt          DateTime @default(now()) @db.DateTime(3)
+
+  estandar         Estandar         @relation(fields: [estandarId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  grupoMinisterial GrupoMinisterial @relation(fields: [grupoMinisterialId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([estandarId, grupoMinisterialId])
+  @@index([grupoMinisterialId])
+  @@map("estandar_grupos_ministeriales")
+}
+
+// ======================================================
+// CONFIGURACIONES POR ASPECTO
+// ======================================================
+
+model ConfiguracionAspecto {
+  id                              Int              @id @default(autoincrement())
+  aspectoId                       Int              @unique
+  esEvergreen                     Boolean          @default(false)
+  bloqueEvergreen                 BloqueEvergreen?
+  documentoActualizacionPeriodica Boolean          @default(false)
+  tareaEjecucionCotidiana         Boolean          @default(false)
+  incluirInformeEstadoTareas      Boolean          @default(false)
+  permiteNoAplica                 Boolean          @default(true)
+  estado                          EstadoRegistro   @default(ACTIVO)
+  createdAt                       DateTime         @default(now()) @db.DateTime(3)
+  updatedAt                       DateTime         @updatedAt @db.DateTime(3)
+
+  aspecto Aspecto @relation(fields: [aspectoId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([esEvergreen])
+  @@index([tareaEjecucionCotidiana])
+  @@index([incluirInformeEstadoTareas])
+  @@map("configuraciones_aspecto")
+}
+
+model ConfiguracionVigenciaAspecto {
+  id                 Int                   @id @default(autoincrement())
+  aspectoId          Int                   @unique
+  tipoFechaBase      TipoFechaBaseVigencia @default(FECHA_DOCUMENTO)
+  fuentePeriodicidad FuentePeriodicidad    @default(CONFIGURACION_TECNICA)
+  cantidad           Int?
+  unidad             UnidadPeriodicidad?
+  diasAlertaPrevia   Int                   @default(30)
+  permiteFechaManual Boolean               @default(true)
+  mesFechaFija       Int?
+  diaFechaFija       Int?
+  descripcionRegla   String?               @db.Text
+  estado             EstadoRegistro        @default(ACTIVO)
+  createdAt          DateTime              @default(now()) @db.DateTime(3)
+  updatedAt          DateTime              @updatedAt @db.DateTime(3)
+
+  aspecto Aspecto @relation(fields: [aspectoId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([tipoFechaBase])
+  @@index([fuentePeriodicidad])
+  @@map("configuraciones_vigencia_aspecto")
+}
+
+model ConfiguracionTareaCotidiana {
+  id               Int                @id @default(autoincrement())
+  aspectoId        Int                @unique
+  cantidadObjetivo Int
+  unidad           UnidadPeriodicidad
+  descripcion      String?            @db.Text
+  estado           EstadoRegistro     @default(ACTIVO)
+  createdAt        DateTime           @default(now()) @db.DateTime(3)
+  updatedAt        DateTime           @updatedAt @db.DateTime(3)
+
+  aspecto Aspecto @relation(fields: [aspectoId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@map("configuraciones_tarea_cotidiana")
+}
+
+model ConfiguracionEvidenciaAspecto {
+  id                    Int            @id @default(autoincrement())
+  aspectoId             Int            @unique
+  requiereEvidencia     Boolean        @default(false)
+  descripcionEvidencia  String?        @db.Text
+  visibleClienteDefault Boolean        @default(false)
+  estado                EstadoRegistro @default(ACTIVO)
+  createdAt             DateTime       @default(now()) @db.DateTime(3)
+  updatedAt             DateTime       @updatedAt @db.DateTime(3)
+
+  aspecto Aspecto @relation(fields: [aspectoId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([requiereEvidencia])
+  @@map("configuraciones_evidencia_aspecto")
+}
+
+model ConfiguracionRevisionTecnica {
+  id                      Int            @id @default(autoincrement())
+  aspectoId               Int            @unique
+  requiereRevisionTecnica Boolean        @default(false)
+  observaciones           String?        @db.Text
+  estado                  EstadoRegistro @default(ACTIVO)
+  createdAt               DateTime       @default(now()) @db.DateTime(3)
+  updatedAt               DateTime       @updatedAt @db.DateTime(3)
+
+  aspecto Aspecto @relation(fields: [aspectoId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([requiereRevisionTecnica])
+  @@map("configuraciones_revision_tecnica")
+}
+
+model ReglaAprobacionGestion {
+  id                 Int               @id @default(autoincrement())
+  aspectoId          Int?
+  modalidad          ModalidadGestion?
+  tipoActividad      String?           @db.VarChar(191)
+  criterio           String            @db.Text
+  requiereAprobacion Boolean           @default(true)
+  vigenteDesde       DateTime?         @db.Date
+  vigenteHasta       DateTime?         @db.Date
+  estado             EstadoRegistro    @default(ACTIVO)
+  createdAt          DateTime          @default(now()) @db.DateTime(3)
+  updatedAt          DateTime          @updatedAt @db.DateTime(3)
+
+  aspecto Aspecto? @relation(fields: [aspectoId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([aspectoId])
+  @@index([modalidad])
+  @@index([estado])
+  @@map("reglas_aprobacion_gestion")
+}
+
+// ======================================================
+// PALABRAS CLAVE Y REQUISITOS NORMATIVOS
+// ======================================================
+
+model PalabraClave {
+  id        Int      @id @default(autoincrement())
+  nombre    String   @unique @db.VarChar(100)
+  createdAt DateTime @default(now()) @db.DateTime(3)
+  updatedAt DateTime @updatedAt @db.DateTime(3)
+
+  aspectos AspectoPalabraClave[]
+
+  @@map("palabras_clave")
+}
+
+model AspectoPalabraClave {
+  aspectoId      Int
+  palabraClaveId Int
+  createdAt      DateTime @default(now()) @db.DateTime(3)
+
+  aspecto      Aspecto      @relation(fields: [aspectoId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  palabraClave PalabraClave @relation(fields: [palabraClaveId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([aspectoId, palabraClaveId])
+  @@index([palabraClaveId])
+  @@map("aspecto_palabras_clave")
+}
+
+model RequisitoNormativo {
+  id          Int            @id @default(autoincrement())
+  norma       String         @db.VarChar(191)
+  articulo    String?        @db.VarChar(100)
+  descripcion String?        @db.Text
+  estado      EstadoRegistro @default(ACTIVO)
+  createdAt   DateTime       @default(now()) @db.DateTime(3)
+  updatedAt   DateTime       @updatedAt @db.DateTime(3)
+
+  aspectos AspectoRequisitoNormativo[]
+
+  @@unique([norma, articulo])
+  @@index([estado])
+  @@map("requisitos_normativos")
+}
+
+model AspectoRequisitoNormativo {
+  aspectoId            Int
+  requisitoNormativoId Int
+  createdAt            DateTime @default(now()) @db.DateTime(3)
+
+  aspecto            Aspecto            @relation(fields: [aspectoId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  requisitoNormativo RequisitoNormativo @relation(fields: [requisitoNormativoId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([aspectoId, requisitoNormativoId])
+  @@index([requisitoNormativoId])
+  @@map("aspecto_requisitos_normativos")
+}
+
+// ======================================================
+// VIGENCIAS E HISTORIAL
+// ======================================================
+
+model VigenciaAspecto {
+  id                  Int            @id @default(autoincrement())
+  aspectoId           Int
+  vigenteDesde        DateTime       @db.Date
+  vigenteHasta        DateTime?      @db.Date
+  motivoDesactivacion String?        @db.Text
+  estado              EstadoRegistro @default(ACTIVO)
+  createdAt           DateTime       @default(now()) @db.DateTime(3)
+  updatedAt           DateTime       @updatedAt @db.DateTime(3)
+
+  aspecto Aspecto @relation(fields: [aspectoId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([aspectoId, vigenteDesde, vigenteHasta])
+  @@index([estado])
+  @@map("vigencias_aspecto")
+}
+
+model HistorialCambioSupermatriz {
+  id                   Int      @id @default(autoincrement())
+  versionSupermatrizId Int?
+  tipoEntidad          String   @db.VarChar(100)
+  entidadId            Int?
+  accion               String   @db.VarChar(100)
+  descripcion          String?  @db.Text
+  datosAntes           Json?
+  datosDespues         Json?
+  usuarioId            String?
+  createdAt            DateTime @default(now()) @db.DateTime(3)
+
+  versionSupermatriz VersionSupermatriz? @relation(fields: [versionSupermatrizId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  usuario            Usuario?            @relation(fields: [usuarioId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([versionSupermatrizId])
+  @@index([tipoEntidad, entidadId])
+  @@index([usuarioId])
+  @@index([createdAt])
+  @@map("historial_cambios_supermatriz")
 }
