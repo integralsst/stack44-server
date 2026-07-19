@@ -11,6 +11,7 @@ import type {
 import {
   asegurarVersionBorrador,
   comoJsonPrisma,
+  ErrorConflictoSupermatriz,
   ErrorValidacionSupermatriz,
 } from "../../utils/supermatriz";
 import { incluirTareaSupermatriz } from "./supermatriz.selects";
@@ -141,6 +142,48 @@ async function validarCodigoTareaUnico(
       `El código ${codigo} ya existe en la versión seleccionada.`
     );
   }
+}
+
+async function validarRelacionTareaUnica(
+  tx: Prisma.TransactionClient,
+  data: DatosTareaSupermatriz,
+  excluirId?: number
+): Promise<void> {
+  const existente =
+    await tx.supermatrizTarea.findFirst({
+      where: {
+        versionSupermatrizId:
+          data.versionSupermatrizId,
+        aspectoId: data.aspectoId,
+        procesoId: data.procesoId,
+        ...(excluirId
+          ? {
+              id: {
+                not: excluirId,
+              },
+            }
+          : {}),
+      },
+      select: {
+        id: true,
+        codigo: true,
+        estado: true,
+      },
+    });
+
+  if (!existente) return;
+
+  throw new ErrorConflictoSupermatriz(
+    existente.estado === EstadoRegistro.INACTIVO
+      ? "Ya existe una fila inactiva que relaciona este aspecto con este proceso. Reactívala o edítala en lugar de crear una nueva."
+      : "Ya existe una fila que relaciona este aspecto con este proceso dentro de la versión seleccionada. Abre la fila existente y edítala en lugar de crear otra.",
+    "FILA_RELACION_DUPLICADA",
+    {
+      tareaId: existente.id,
+      codigo: existente.codigo,
+      estado: existente.estado,
+    }
+  );
 }
 
 
@@ -355,6 +398,10 @@ export const servicioTareasSupermatriz = {
         data.versionSupermatrizId,
         data.codigo
       );
+      await validarRelacionTareaUnica(
+        tx,
+        data
+      );
 
       const tarea =
         await tx.supermatrizTarea.create({
@@ -447,6 +494,11 @@ export const servicioTareasSupermatriz = {
         tx,
         data.versionSupermatrizId,
         data.codigo,
+        id
+      );
+      await validarRelacionTareaUnica(
+        tx,
+        data,
         id
       );
 

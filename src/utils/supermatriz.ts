@@ -17,6 +17,22 @@ export class ErrorValidacionSupermatriz extends Error {
   }
 }
 
+export class ErrorConflictoSupermatriz extends Error {
+  readonly codigo: string;
+  readonly detalles?: Record<string, unknown>;
+
+  constructor(
+    message: string,
+    codigo = "CONFLICTO_SUPERMATRIZ",
+    detalles?: Record<string, unknown>
+  ) {
+    super(message);
+    this.name = "ErrorConflictoSupermatriz";
+    this.codigo = codigo;
+    this.detalles = detalles;
+  }
+}
+
 export function normalizarTexto(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -246,11 +262,38 @@ export function responderErrorSupermatriz(
     return;
   }
 
+  if (error instanceof ErrorConflictoSupermatriz) {
+    res.status(409).json({
+      error: error.message,
+      code: error.codigo,
+      details: error.detalles,
+    });
+    return;
+  }
+
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
     if (error.code === "P2002") {
+      const target = Array.isArray(error.meta?.target)
+        ? error.meta?.target.join(",")
+        : String(error.meta?.target ?? "");
+
+      if (
+        target.includes("versionSupermatrizId") &&
+        target.includes("aspectoId") &&
+        target.includes("procesoId")
+      ) {
+        res.status(409).json({
+          error:
+            "Ya existe una fila que relaciona este aspecto con este proceso dentro de la versión seleccionada. Abre la fila existente y edítala en lugar de crear otra.",
+          code: "FILA_RELACION_DUPLICADA",
+        });
+        return;
+      }
+
       res.status(409).json({
         error:
           "Ya existe un registro con ese nombre, código o combinación dentro de la versión.",
+        code: "REGISTRO_DUPLICADO",
       });
       return;
     }
