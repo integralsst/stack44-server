@@ -269,6 +269,14 @@ export function responderErrorSupermatriz(
       });
       return;
     }
+
+    if (error.code === "P2028") {
+      res.status(503).json({
+        error:
+          "La conexión con la base de datos tardó demasiado y la operación fue cancelada. Intenta guardar nuevamente.",
+      });
+      return;
+    }
   }
 
   res.status(500).json({

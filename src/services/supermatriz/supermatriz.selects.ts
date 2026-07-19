@@ -26,6 +26,7 @@ export const incluirTareaSupermatriz = {
       configuracionTareaCotidiana: true,
       configuracionEvidencia: true,
       configuracionRevision: true,
+      reglasAprobacion: true,
       palabrasClave: {
         include: {
           palabraClave: true,
