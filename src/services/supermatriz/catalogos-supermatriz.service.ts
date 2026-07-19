@@ -295,7 +295,11 @@ export const servicioCatalogosSupermatriz = {
         include: {
           _count: {
             select: {
-              tareas: true,
+              tareas: {
+                where: {
+                  estado: EstadoRegistro.ACTIVO,
+                },
+              },
             },
           },
         },
