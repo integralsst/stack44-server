@@ -267,38 +267,45 @@ enum ModalidadGestion {
 // ======================================================
 
 model CicloPhva {
-  id                 Int            @id @default(autoincrement())
-  codigo             String         @unique @db.VarChar(20)
-  nombre             String         @db.VarChar(100)
-  orden              Int
-  porcentajeEsperado Decimal?       @db.Decimal(5, 2)
-  estado             EstadoRegistro @default(ACTIVO)
-  createdAt          DateTime       @default(now()) @db.DateTime(3)
-  updatedAt          DateTime       @updatedAt @db.DateTime(3)
+  id                   Int            @id @default(autoincrement())
+  versionSupermatrizId Int
+  codigo               String         @db.VarChar(20)
+  nombre               String         @db.VarChar(100)
+  orden                Int
+  porcentajeEsperado   Decimal?       @db.Decimal(5, 2)
+  estado               EstadoRegistro @default(ACTIVO)
+  createdAt            DateTime       @default(now()) @db.DateTime(3)
+  updatedAt            DateTime       @updatedAt @db.DateTime(3)
 
-  categorias CategoriaEstandar[]
+  versionSupermatriz VersionSupermatriz  @relation(fields: [versionSupermatrizId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  categorias         CategoriaEstandar[]
 
-  @@index([orden])
+  @@unique([versionSupermatrizId, codigo])
+  @@unique([versionSupermatrizId, nombre])
+  @@index([versionSupermatrizId, orden])
   @@index([estado])
   @@map("ciclos_phva")
 }
 
 model CategoriaEstandar {
-  id                 Int            @id @default(autoincrement())
-  cicloPhvaId        Int
-  codigo             String?        @db.VarChar(50)
-  nombre             String         @db.VarChar(191)
-  descripcion        String?        @db.Text
-  orden              Int
-  porcentajeEsperado Decimal?       @db.Decimal(5, 2)
-  estado             EstadoRegistro @default(ACTIVO)
-  createdAt          DateTime       @default(now()) @db.DateTime(3)
-  updatedAt          DateTime       @updatedAt @db.DateTime(3)
+  id                   Int            @id @default(autoincrement())
+  versionSupermatrizId Int
+  cicloPhvaId          Int
+  codigo               String?        @db.VarChar(50)
+  nombre               String         @db.VarChar(191)
+  descripcion          String?        @db.Text
+  orden                Int
+  porcentajeEsperado   Decimal?       @db.Decimal(5, 2)
+  estado               EstadoRegistro @default(ACTIVO)
+  createdAt            DateTime       @default(now()) @db.DateTime(3)
+  updatedAt            DateTime       @updatedAt @db.DateTime(3)
 
-  cicloPhva  CicloPhva  @relation(fields: [cicloPhvaId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  estandares Estandar[]
+  versionSupermatriz VersionSupermatriz @relation(fields: [versionSupermatrizId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  cicloPhva          CicloPhva          @relation(fields: [cicloPhvaId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  estandares         Estandar[]
 
-  @@unique([cicloPhvaId, nombre])
+  @@unique([versionSupermatrizId, cicloPhvaId, nombre])
+  @@index([versionSupermatrizId])
   @@index([cicloPhvaId, orden])
   @@index([estado])
   @@map("categorias_estandar")
@@ -306,8 +313,9 @@ model CategoriaEstandar {
 
 model Estandar {
   id                              Int            @id @default(autoincrement())
+  versionSupermatrizId            Int
   categoriaEstandarId             Int
-  codigo                          String?        @unique @db.VarChar(50)
+  codigo                          String?        @db.VarChar(50)
   nombre                          String         @db.VarChar(191)
   descripcion                     String?        @db.Text
   orden                           Int
@@ -316,42 +324,50 @@ model Estandar {
   createdAt                       DateTime       @default(now()) @db.DateTime(3)
   updatedAt                       DateTime       @updatedAt @db.DateTime(3)
 
+  versionSupermatriz  VersionSupermatriz         @relation(fields: [versionSupermatrizId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   categoriaEstandar   CategoriaEstandar          @relation(fields: [categoriaEstandarId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   aspectos            Aspecto[]
   gruposMinisteriales EstandarGrupoMinisterial[]
 
-  @@unique([categoriaEstandarId, nombre])
+  @@unique([versionSupermatrizId, categoriaEstandarId, nombre])
+  @@index([versionSupermatrizId])
   @@index([categoriaEstandarId, orden])
   @@index([estado])
   @@map("estandares")
 }
 
 model Proceso {
-  id          Int            @id @default(autoincrement())
-  codigo      String?        @unique @db.VarChar(50)
-  nombre      String         @unique @db.VarChar(191)
-  descripcion String?        @db.Text
-  estado      EstadoRegistro @default(ACTIVO)
-  createdAt   DateTime       @default(now()) @db.DateTime(3)
-  updatedAt   DateTime       @updatedAt @db.DateTime(3)
+  id                   Int            @id @default(autoincrement())
+  versionSupermatrizId Int
+  codigo               String?        @db.VarChar(50)
+  nombre               String         @db.VarChar(191)
+  descripcion          String?        @db.Text
+  estado               EstadoRegistro @default(ACTIVO)
+  createdAt            DateTime       @default(now()) @db.DateTime(3)
+  updatedAt            DateTime       @updatedAt @db.DateTime(3)
 
-  tareas SupermatrizTarea[]
+  versionSupermatriz VersionSupermatriz @relation(fields: [versionSupermatrizId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  tareas             SupermatrizTarea[]
 
+  @@unique([versionSupermatrizId, nombre])
+  @@index([versionSupermatrizId])
   @@index([estado])
   @@map("procesos")
 }
 
 model Aspecto {
-  id          Int            @id @default(autoincrement())
-  estandarId  Int
-  codigo      String?        @unique @db.VarChar(50)
-  nombre      String         @db.VarChar(191)
-  descripcion String?        @db.Text
-  orden       Int
-  estado      EstadoRegistro @default(ACTIVO)
-  createdAt   DateTime       @default(now()) @db.DateTime(3)
-  updatedAt   DateTime       @updatedAt @db.DateTime(3)
+  id                   Int            @id @default(autoincrement())
+  versionSupermatrizId Int
+  estandarId           Int
+  codigo               String?        @db.VarChar(50)
+  nombre               String         @db.VarChar(191)
+  descripcion          String?        @db.Text
+  orden                Int
+  estado               EstadoRegistro @default(ACTIVO)
+  createdAt            DateTime       @default(now()) @db.DateTime(3)
+  updatedAt            DateTime       @updatedAt @db.DateTime(3)
 
+  versionSupermatriz          VersionSupermatriz             @relation(fields: [versionSupermatrizId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   estandar                    Estandar                       @relation(fields: [estandarId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   planAccionEspecifico        PlanAccionEspecifico?
   tareas                      SupermatrizTarea[]
@@ -365,7 +381,8 @@ model Aspecto {
   reglasAprobacion            ReglaAprobacionGestion[]
   vigencias                   VigenciaAspecto[]
 
-  @@unique([estandarId, nombre])
+  @@unique([versionSupermatrizId, estandarId, nombre])
+  @@index([versionSupermatrizId])
   @@index([estandarId, orden])
   @@index([estado])
   @@map("aspectos")
@@ -387,6 +404,7 @@ model PlanAccionEspecifico {
 
 model VersionSupermatriz {
   id           Int                      @id @default(autoincrement())
+  clonadaDeId  Int?
   nombre       String                   @unique @db.VarChar(100)
   descripcion  String?                  @db.Text
   estado       EstadoVersionSupermatriz @default(BORRADOR)
@@ -395,9 +413,20 @@ model VersionSupermatriz {
   createdAt    DateTime                 @default(now()) @db.DateTime(3)
   updatedAt    DateTime                 @updatedAt @db.DateTime(3)
 
-  tareas  SupermatrizTarea[]
-  cambios HistorialCambioSupermatriz[]
+  clonadaDe VersionSupermatriz?  @relation("VersionClonada", fields: [clonadaDeId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  clones    VersionSupermatriz[] @relation("VersionClonada")
 
+  ciclosPhva           CicloPhva[]
+  categoriasEstandar   CategoriaEstandar[]
+  estandares           Estandar[]
+  aspectos             Aspecto[]
+  procesos             Proceso[]
+  palabrasClave        PalabraClave[]
+  requisitosNormativos RequisitoNormativo[]
+  tareas               SupermatrizTarea[]
+  cambios              HistorialCambioSupermatriz[]
+
+  @@index([clonadaDeId])
   @@index([estado])
   @@index([vigenteDesde, vigenteHasta])
   @@map("versiones_supermatriz")
@@ -408,7 +437,7 @@ model SupermatrizTarea {
   versionSupermatrizId Int
   aspectoId            Int
   procesoId            Int
-  codigo               String? @unique @db.VarChar(50)
+  codigo               String? @db.VarChar(50)
   orden                Int
 
   // Información operativa de la fila maestra
@@ -635,13 +664,17 @@ model ReglaAprobacionGestion {
 // ======================================================
 
 model PalabraClave {
-  id        Int      @id @default(autoincrement())
-  nombre    String   @unique @db.VarChar(100)
-  createdAt DateTime @default(now()) @db.DateTime(3)
-  updatedAt DateTime @updatedAt @db.DateTime(3)
+  id                   Int      @id @default(autoincrement())
+  versionSupermatrizId Int
+  nombre               String   @db.VarChar(100)
+  createdAt            DateTime @default(now()) @db.DateTime(3)
+  updatedAt            DateTime @updatedAt @db.DateTime(3)
 
-  aspectos AspectoPalabraClave[]
+  versionSupermatriz VersionSupermatriz    @relation(fields: [versionSupermatrizId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  aspectos           AspectoPalabraClave[]
 
+  @@unique([versionSupermatrizId, nombre])
+  @@index([versionSupermatrizId])
   @@map("palabras_clave")
 }
 
@@ -659,17 +692,21 @@ model AspectoPalabraClave {
 }
 
 model RequisitoNormativo {
-  id          Int            @id @default(autoincrement())
-  norma       String         @db.VarChar(191)
-  articulo    String?        @db.VarChar(100)
-  descripcion String?        @db.Text
-  estado      EstadoRegistro @default(ACTIVO)
-  createdAt   DateTime       @default(now()) @db.DateTime(3)
-  updatedAt   DateTime       @updatedAt @db.DateTime(3)
+  id                   Int            @id @default(autoincrement())
+  versionSupermatrizId Int
+  clave                String         @db.VarChar(255)
+  norma                String         @db.VarChar(191)
+  articulo             String?        @db.VarChar(100)
+  descripcion          String?        @db.Text
+  estado               EstadoRegistro @default(ACTIVO)
+  createdAt            DateTime       @default(now()) @db.DateTime(3)
+  updatedAt            DateTime       @updatedAt @db.DateTime(3)
 
-  aspectos AspectoRequisitoNormativo[]
+  versionSupermatriz VersionSupermatriz          @relation(fields: [versionSupermatrizId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  aspectos           AspectoRequisitoNormativo[]
 
-  @@unique([norma, articulo])
+  @@unique([versionSupermatrizId, clave])
+  @@index([versionSupermatrizId])
   @@index([estado])
   @@map("requisitos_normativos")
 }

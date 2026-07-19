@@ -1,7 +1,12 @@
-import { RolUsuario } from "@prisma/client";
-import { Router } from "express";
+import {
+  RolUsuario,
+} from "@prisma/client";
+import {
+  Router,
+} from "express";
 
 import { controladorCatalogosSupermatriz } from "../controllers/supermatriz/catalogos-supermatriz.controller";
+import { controladorHistorialSupermatriz } from "../controllers/supermatriz/historial-supermatriz.controller";
 import { controladorTareasSupermatriz } from "../controllers/supermatriz/tareas-supermatriz.controller";
 import { controladorVersionesSupermatriz } from "../controllers/supermatriz/versiones-supermatriz.controller";
 import {
@@ -26,6 +31,10 @@ const rolesEdicion = [
 
 router.use(autenticar);
 
+// ======================================================
+// CATÁLOGOS Y RESUMEN
+// ======================================================
+
 router.get(
   "/catalogos",
   autorizar(...rolesLectura),
@@ -37,6 +46,10 @@ router.get(
   autorizar(...rolesLectura),
   controladorCatalogosSupermatriz.obtenerResumen
 );
+
+// ======================================================
+// VERSIONES
+// ======================================================
 
 router.get(
   "/versiones",
@@ -61,6 +74,122 @@ router.put(
   autorizar(...rolesEdicion),
   controladorVersionesSupermatriz.actualizar
 );
+
+router.post(
+  "/versiones/:id/clonar",
+  autorizar(...rolesEdicion),
+  controladorVersionesSupermatriz.clonar
+);
+
+router.post(
+  "/versiones/:id/publicar",
+  autorizar(...rolesEdicion),
+  controladorVersionesSupermatriz.publicar
+);
+
+router.post(
+  "/versiones/:id/cerrar",
+  autorizar(...rolesEdicion),
+  controladorVersionesSupermatriz.cerrar
+);
+
+// ======================================================
+// CRUD DE ESTRUCTURA MAESTRA
+// ======================================================
+
+router.post(
+  "/ciclos-phva",
+  autorizar(...rolesEdicion),
+  controladorCatalogosSupermatriz.crearCiclo
+);
+
+router.put(
+  "/ciclos-phva/:id",
+  autorizar(...rolesEdicion),
+  controladorCatalogosSupermatriz.actualizarCiclo
+);
+
+router.delete(
+  "/ciclos-phva/:id",
+  autorizar(...rolesEdicion),
+  controladorCatalogosSupermatriz.desactivarCiclo
+);
+
+router.post(
+  "/categorias-estandar",
+  autorizar(...rolesEdicion),
+  controladorCatalogosSupermatriz.crearCategoria
+);
+
+router.put(
+  "/categorias-estandar/:id",
+  autorizar(...rolesEdicion),
+  controladorCatalogosSupermatriz.actualizarCategoria
+);
+
+router.delete(
+  "/categorias-estandar/:id",
+  autorizar(...rolesEdicion),
+  controladorCatalogosSupermatriz.desactivarCategoria
+);
+
+router.post(
+  "/estandares",
+  autorizar(...rolesEdicion),
+  controladorCatalogosSupermatriz.crearEstandar
+);
+
+router.put(
+  "/estandares/:id",
+  autorizar(...rolesEdicion),
+  controladorCatalogosSupermatriz.actualizarEstandar
+);
+
+router.delete(
+  "/estandares/:id",
+  autorizar(...rolesEdicion),
+  controladorCatalogosSupermatriz.desactivarEstandar
+);
+
+router.post(
+  "/aspectos",
+  autorizar(...rolesEdicion),
+  controladorCatalogosSupermatriz.crearAspecto
+);
+
+router.put(
+  "/aspectos/:id",
+  autorizar(...rolesEdicion),
+  controladorCatalogosSupermatriz.actualizarAspecto
+);
+
+router.delete(
+  "/aspectos/:id",
+  autorizar(...rolesEdicion),
+  controladorCatalogosSupermatriz.desactivarAspecto
+);
+
+router.post(
+  "/procesos",
+  autorizar(...rolesEdicion),
+  controladorCatalogosSupermatriz.crearProceso
+);
+
+router.put(
+  "/procesos/:id",
+  autorizar(...rolesEdicion),
+  controladorCatalogosSupermatriz.actualizarProceso
+);
+
+router.delete(
+  "/procesos/:id",
+  autorizar(...rolesEdicion),
+  controladorCatalogosSupermatriz.desactivarProceso
+);
+
+// ======================================================
+// FILAS DE LA MATRIZ
+// ======================================================
 
 router.get(
   "/tareas",
@@ -90,6 +219,16 @@ router.delete(
   "/tareas/:id",
   autorizar(...rolesEdicion),
   controladorTareasSupermatriz.eliminar
+);
+
+// ======================================================
+// HISTORIAL
+// ======================================================
+
+router.get(
+  "/historial",
+  autorizar(...rolesLectura),
+  controladorHistorialSupermatriz.obtenerTodos
 );
 
 export default router;

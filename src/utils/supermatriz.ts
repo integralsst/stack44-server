@@ -1,7 +1,12 @@
 import {
+  BloqueEvergreen,
   EstadoRegistro,
   EstadoVersionSupermatriz,
+  FuentePeriodicidad,
+  ModalidadGestion,
   Prisma,
+  TipoFechaBaseVigencia,
+  UnidadPeriodicidad,
 } from "@prisma/client";
 import type { Response } from "express";
 
@@ -14,6 +19,18 @@ export class ErrorValidacionSupermatriz extends Error {
 
 export function normalizarTexto(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+export function textoRequerido(value: unknown, campo: string): string {
+  const texto = normalizarTexto(value);
+
+  if (!texto) {
+    throw new ErrorValidacionSupermatriz(
+      `${campo} es obligatorio.`
+    );
+  }
+
+  return texto;
 }
 
 export function textoOpcional(value: unknown): string | null {
@@ -47,6 +64,38 @@ export function enteroOpcional(value: unknown): number | undefined {
     : undefined;
 }
 
+export function numeroOpcional(
+  value: unknown,
+  campo: string,
+  minimo = 0,
+  maximo?: number
+): number | null {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  const numero = Number(value);
+
+  if (
+    Number.isNaN(numero) ||
+    numero < minimo ||
+    (maximo !== undefined && numero > maximo)
+  ) {
+    throw new ErrorValidacionSupermatriz(
+      `${campo} no tiene un valor válido.`
+    );
+  }
+
+  return numero;
+}
+
+export function booleano(
+  value: unknown,
+  fallback = false
+): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
 export function fechaOpcional(value: unknown): Date | null {
   if (value === undefined || value === null || value === "") {
     return null;
@@ -75,6 +124,18 @@ export function idsEnteros(value: unknown): number[] {
   ];
 }
 
+export function cadenasUnicas(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  return [
+    ...new Set(
+      value
+        .map((item) => normalizarTexto(item))
+        .filter(Boolean)
+    ),
+  ];
+}
+
 export function estadoRegistro(
   value: unknown,
   fallback: EstadoRegistro = EstadoRegistro.ACTIVO
@@ -86,20 +147,91 @@ export function estadoRegistro(
     : fallback;
 }
 
-export function estadoVersion(
+export function enumOpcional<T extends string>(
   value: unknown,
-  fallback: EstadoVersionSupermatriz =
-    EstadoVersionSupermatriz.BORRADOR
-): EstadoVersionSupermatriz {
-  return Object.values(EstadoVersionSupermatriz).includes(
-    value as EstadoVersionSupermatriz
-  )
-    ? (value as EstadoVersionSupermatriz)
-    : fallback;
+  valores: readonly T[]
+): T | null {
+  return valores.includes(value as T)
+    ? (value as T)
+    : null;
+}
+
+export function bloqueEvergreen(
+  value: unknown
+): BloqueEvergreen | null {
+  return enumOpcional(
+    value,
+    Object.values(BloqueEvergreen)
+  );
+}
+
+export function tipoFechaBase(
+  value: unknown
+): TipoFechaBaseVigencia {
+  return (
+    enumOpcional(
+      value,
+      Object.values(TipoFechaBaseVigencia)
+    ) ?? TipoFechaBaseVigencia.FECHA_DOCUMENTO
+  );
+}
+
+export function fuentePeriodicidad(
+  value: unknown
+): FuentePeriodicidad {
+  return (
+    enumOpcional(
+      value,
+      Object.values(FuentePeriodicidad)
+    ) ?? FuentePeriodicidad.CONFIGURACION_TECNICA
+  );
+}
+
+export function unidadPeriodicidad(
+  value: unknown
+): UnidadPeriodicidad | null {
+  return enumOpcional(
+    value,
+    Object.values(UnidadPeriodicidad)
+  );
+}
+
+export function modalidadGestion(
+  value: unknown
+): ModalidadGestion | null {
+  return enumOpcional(
+    value,
+    Object.values(ModalidadGestion)
+  );
 }
 
 export function comoJsonPrisma(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+export async function asegurarVersionBorrador(
+  tx: Prisma.TransactionClient,
+  versionSupermatrizId: number
+): Promise<void> {
+  const version = await tx.versionSupermatriz.findUnique({
+    where: { id: versionSupermatrizId },
+    select: {
+      id: true,
+      estado: true,
+    },
+  });
+
+  if (!version) {
+    throw new ErrorValidacionSupermatriz(
+      "La versión seleccionada no existe."
+    );
+  }
+
+  if (version.estado !== EstadoVersionSupermatriz.BORRADOR) {
+    throw new ErrorValidacionSupermatriz(
+      "Solo se puede modificar una versión en estado BORRADOR."
+    );
+  }
 }
 
 export function responderErrorSupermatriz(
@@ -118,7 +250,7 @@ export function responderErrorSupermatriz(
     if (error.code === "P2002") {
       res.status(409).json({
         error:
-          "Ya existe un registro con esa combinación o código.",
+          "Ya existe un registro con ese nombre, código o combinación dentro de la versión.",
       });
       return;
     }
