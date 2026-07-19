@@ -2,20 +2,37 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "CommonJS",
-    "moduleResolution": "Node10",
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
+    "moduleResolution": "Node",
+
+    "rootDir": "src",
+    "outDir": "dist",
+
     "strict": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+
+    "types": ["node"],
+    "typeRoots": [
+      "./node_modules/@types",
+      "./src/types"
+    ],
+
     "skipLibCheck": true,
-    "outDir": "./dist",
-    "types": ["node"] 
+    "forceConsistentCasingInFileNames": true,
+
+    "noEmit": false,
+    "sourceMap": true
   },
+
   "include": [
-    "src/**/*",
-    "prisma/seed.ts"
+    "src/**/*.ts",
+    "src/**/*.d.ts"
   ],
+
   "exclude": [
     "node_modules",
-    "dist"
+    "dist",
+    "prisma"
   ]
 }
