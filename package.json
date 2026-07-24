@@ -14,6 +14,7 @@
     "seed": "prisma db seed",
     "reset:supermatriz": "ts-node --project tsconfig.seed.json prisma/reset-supermatriz.ts",
     "seed:supermatriz": "ts-node --project tsconfig.seed.json prisma/seed-supermatriz.ts"
+    
   },
   "keywords": [],
   "author": "",

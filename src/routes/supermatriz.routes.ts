@@ -6,6 +6,7 @@ import {
 } from "express";
 
 import { controladorCatalogosSupermatriz } from "../controllers/supermatriz/catalogos-supermatriz.controller";
+import { controladorConstruccionSupermatriz } from "../controllers/supermatriz/construccion-supermatriz.controller";
 import { controladorHistorialSupermatriz } from "../controllers/supermatriz/historial-supermatriz.controller";
 import { controladorTareasSupermatriz } from "../controllers/supermatriz/tareas-supermatriz.controller";
 import { controladorVersionesSupermatriz } from "../controllers/supermatriz/versiones-supermatriz.controller";
@@ -91,6 +92,16 @@ router.post(
   "/versiones/:id/cerrar",
   autorizar(...rolesEdicion),
   controladorVersionesSupermatriz.cerrar
+);
+
+// ======================================================
+// CONSTRUCTOR TRANSACCIONAL EN ORDEN INVERSO
+// ======================================================
+
+router.post(
+  "/construir-fila",
+  autorizar(...rolesEdicion),
+  controladorConstruccionSupermatriz.guardar
 );
 
 // ======================================================
